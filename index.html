@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Gideons Tvättnightmare</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #1a1a1a;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+canvas {
+  display: block;
+  margin: 0 auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+</style>
+</head>
+<body>
+<canvas id="gc"></canvas>
+<script>
+'use strict';
+// ============================================================
+// Gideons Tvättnightmare — Single-file 16-bit pixel catcher game
+// ============================================================
+
+const canvas = document.getElementById('gc');
+const ctx = canvas.getContext('2d');
+
+// Design resolution
+const W = 400, H = 600;
+canvas.width = W;
+canvas.height = H;
+
+// Colors — wedding palette
+const COL = {
+  sage: '#374e2e',
+  rose: '#d8b9a4',
+  darkGreen: '#384839',
+  offWhite: '#f9f9f9',
+  gold: '#d4a017',
+  ironGray: '#7a7a7a',
+  floor: '#a0764a',
+  floorDark: '#8b6239',
+  bg: '#e8e0d6',
+  wall: '#f2ece6',
+  skin: '#f5c8a8',
+  gideonHair: '#e8c840',
+  gideonHairDark: '#c8a830',
+  saraHair: '#1a1a1a',
+  blueGreen: '#3a9988',
+  brownEye: '#5a3018',
+  white: '#ffffff',
+  black: '#000000',
+  red: '#cc3333',
+  darkRose: '#b8907a',
+};
+
+// ============================================================
+// AUDIO ENGINE (procedural, Web Audio API)
+// ============================================================
+let audioCtx = null;
+let muted = false;
+
+function ensureAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playTone(freq, duration, type, vol, ramp) {
+  if (muted || !audioCtx) return;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type || 'square';
+  o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  if (ramp) o.frequency.linearRampToValueAtTime(ramp, audioCtx.currentTime + duration);
+  g.gain.setValueAtTime(vol || 0.1, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  o.start();
+  o.stop(audioCtx.currentTime + duration);
+}
+
+function sfxCatch() {
+  playTone(600, 0.08, 'square', 0.12);
+  setTimeout(() => playTone(900, 0.06, 'square', 0.08), 40);
+}
+function sfxDrop() { playTone(150, 0.2, 'triangle', 0.1, 80); }
+function sfxWeddingDress() {
+  playTone(800, 0.1, 'sine', 0.1);
+  setTimeout(() => playTone(1000, 0.1, 'sine', 0.08), 80);
+  setTimeout(() => playTone(1200, 0.15, 'sine', 0.06), 160);
+}
+function sfxRings() {
+  playTone(500, 0.08, 'sine', 0.1);
+  setTimeout(() => playTone(700, 0.08, 'sine', 0.1), 60);
+  setTimeout(() => playTone(900, 0.08, 'sine', 0.1), 120);
+  setTimeout(() => playTone(1100, 0.15, 'sine', 0.08), 180);
+}
+function sfxIron() { playTone(200, 0.3, 'sawtooth', 0.12, 80); }
+function sfxGameOver() {
+  playTone(400, 0.2, 'square', 0.1);
+  setTimeout(() => playTone(350, 0.2, 'square', 0.1), 200);
+  setTimeout(() => playTone(300, 0.2, 'square', 0.1), 400);
+  setTimeout(() => playTone(200, 0.5, 'square', 0.12), 600);
+}
+
+// Simple chiptune background music
+let musicInterval = null;
+const musicNotes = [262,294,330,349,392,349,330,294,262,330,392,440,392,330,294,262];
+let musicIdx = 0;
+function startMusic() {
+  stopMusic();
+  musicIdx = 0;
+  musicInterval = setInterval(() => {
+    if (!muted && audioCtx) {
+      playTone(musicNotes[musicIdx % musicNotes.length], 0.15, 'square', 0.04);
+    }
+    musicIdx++;
+  }, 220);
+}
+function stopMusic() {
+  if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
+}
+
+// ============================================================
+// GAME STATE
+// ============================================================
+const STATE = { TITLE: 0, PLAYING: 1, GAME_OVER: 2 };
+let state = STATE.TITLE;
+let score = 0;
+let highScore = 0;
+let newRecord = false;
+let gameTime = 0;
+let multiplier = 1;
+let multiplierTimer = 0;
+let stunTimer = 0;
+let combo = 0;
+let maxCombo = 0;
+const MESS_MAX = 15;
+let messCount = 0;
+
+// High score persistence
+try { highScore = parseInt(localStorage.getItem('gtn_highscore')) || 0; } catch(e) {}
+function saveHighScore() {
+  try { localStorage.setItem('gtn_highscore', highScore); } catch(e) {}
+}
+
+// Mute persistence
+try { muted = localStorage.getItem('gtn_muted') === '1'; } catch(e) {}
+function saveMute() {
+  try { localStorage.setItem('gtn_muted', muted ? '1' : '0'); } catch(e) {}
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+let pointerX = W / 2;
+let pointerActive = false;
+let clicked = false;
+
+function getCanvasPos(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) * (W / rect.width),
+    y: (clientY - rect.top) * (H / rect.height)
+  };
+}
+
+canvas.addEventListener('mousemove', e => {
+  const p = getCanvasPos(e.clientX, e.clientY);
+  pointerX = p.x;
+  pointerActive = true;
+});
+canvas.addEventListener('mousedown', e => {
+  ensureAudio();
+  const p = getCanvasPos(e.clientX, e.clientY);
+  pointerX = p.x;
+  if (!checkMuteClick(p.x, p.y)) clicked = true;
+  pointerActive = true;
+});
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  ensureAudio();
+  if (e.touches.length > 0) {
+    const p = getCanvasPos(e.touches[0].clientX, e.touches[0].clientY);
+    pointerX = p.x;
+    if (!checkMuteClick(p.x, p.y)) clicked = true;
+    pointerActive = true;
+  }
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length > 0) {
+    const p = getCanvasPos(e.touches[0].clientX, e.touches[0].clientY);
+    pointerX = p.x;
+  }
+}, { passive: false });
+canvas.addEventListener('touchend', e => { e.preventDefault(); }, { passive: false });
+
+// ============================================================
+// SPRITE DRAWING HELPERS
+// ============================================================
+function drawPixelRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(x), Math.round(y), w, h);
+}
+
+function drawPixelChar(x, y, pixels, palette, scale) {
+  scale = scale || 1;
+  for (let row = 0; row < pixels.length; row++) {
+    for (let col = 0; col < pixels[row].length; col++) {
+      const c = pixels[row][col];
+      if (c !== 0 && palette[c]) {
+        ctx.fillStyle = palette[c];
+        ctx.fillRect(Math.round(x + col * scale), Math.round(y + row * scale), scale, scale);
+      }
+    }
+  }
+}
+
+// ============================================================
+// SARA SPRITE (top of screen, throws clothes)
+// ============================================================
+const saraPalette = {
+  1: COL.saraHair,   // long black hair
+  2: COL.skin,       // skin
+  3: COL.rose,       // dress
+  4: COL.darkRose,   // dress shadow
+  5: COL.brownEye,   // brown eyes
+  6: COL.red,        // mouth
+};
+
+const saraSprite = [
+  [0,0,0,1,1,1,1,0,0,0],
+  [0,0,1,1,1,1,1,1,0,0],
+  [0,1,1,1,1,1,1,1,1,0],
+  [0,1,1,2,2,2,2,1,1,0],
+  [0,1,2,2,2,2,2,2,1,0],
+  [0,1,2,5,2,2,5,2,1,0],
+  [0,1,2,2,2,2,2,2,1,0],
+  [0,1,0,2,6,6,2,0,1,0],
+  [0,1,0,0,2,2,0,0,1,0],
+  [0,1,3,3,3,3,3,3,1,0],
+  [0,1,3,3,3,3,3,3,1,0],
+  [0,1,3,3,3,3,3,3,1,0],
+  [0,1,4,3,3,3,3,4,1,0],
+  [0,1,2,0,3,3,0,2,1,0],
+  [0,1,2,0,4,4,0,2,1,0],
+  [0,0,1,0,3,3,0,1,0,0],
+  [0,0,1,0,3,3,0,1,0,0],
+];
+
+// Throwing arm frame
+const saraThrowSprite = [
+  [0,0,0,1,1,1,1,0,0,0],
+  [0,0,1,1,1,1,1,1,0,0],
+  [0,1,1,1,1,1,1,1,1,0],
+  [0,1,1,2,2,2,2,1,1,0],
+  [0,1,2,2,2,2,2,2,1,0],
+  [0,1,2,5,2,2,5,2,1,0],
+  [0,1,2,2,2,2,2,2,1,0],
+  [0,1,0,2,6,6,2,0,1,0],
+  [0,1,0,0,2,2,0,0,1,0],
+  [0,1,3,3,3,3,3,3,1,0],
+  [0,1,3,3,3,3,3,3,1,0],
+  [2,1,3,3,3,3,3,3,1,2],
+  [2,1,4,3,3,3,3,4,1,0],
+  [2,1,0,0,3,3,0,0,1,0],
+  [0,0,1,0,4,4,0,1,0,0],
+  [0,0,1,0,3,3,0,1,0,0],
+  [0,0,1,0,3,3,0,1,0,0],
+];
+
+const SARA_SCALE = 3;
+const SARA_W = 10 * SARA_SCALE;
+const SARA_H = 17 * SARA_SCALE;
+
+let saraX = W / 2;
+let saraTargetX = W / 2;
+let saraSpeed = 60;
+let saraMoveTimer = 0;
+let saraThrowTimer = 0;
+let saraThrowAnim = 0;
+let saraThrowInterval = 1.2;
+
+// ============================================================
+// GIDEON SPRITE (bottom, catches with basket)
+// ============================================================
+const gideonPalette = {
+  1: COL.gideonHair,     // blond hair
+  2: COL.skin,           // skin
+  3: COL.white,          // white t-shirt
+  4: COL.darkGreen,      // pants
+  5: COL.blueGreen,      // blue-green eyes
+  6: COL.floor,          // basket
+  7: '#8B6914',          // basket dark
+  8: COL.gideonHairDark, // hair shadow
+};
+
+const gideonSprite = [
+  [0,0,0,1,1,1,0,0,0,0],
+  [0,0,1,8,1,8,1,0,0,0],
+  [0,0,0,2,2,2,0,0,0,0],
+  [0,0,2,2,2,2,2,0,0,0],
+  [0,0,2,5,2,5,2,0,0,0],
+  [0,0,2,2,2,2,2,0,0,0],
+  [0,0,0,2,2,2,0,0,0,0],
+  [0,0,3,3,3,3,3,0,0,0],
+  [0,2,3,3,3,3,3,2,0,0],
+  [0,2,3,3,3,3,3,2,0,0],
+  [0,0,3,3,3,3,3,0,0,0],
+  [0,0,4,4,0,4,4,0,0,0],
+  [0,0,4,4,0,4,4,0,0,0],
+];
+
+// Basket
+const basketSprite = [
+  [0,7,6,6,6,6,6,6,6,6,6,6,7,0],
+  [0,0,7,6,6,6,6,6,6,6,6,7,0,0],
+  [0,0,7,6,6,6,6,6,6,6,6,7,0,0],
+  [0,0,0,7,6,6,6,6,6,6,7,0,0,0],
+  [0,0,0,7,7,7,7,7,7,7,7,0,0,0],
+];
+
+const GIDEON_SCALE = 4;
+const GIDEON_W = 10 * GIDEON_SCALE;
+const GIDEON_H = 13 * GIDEON_SCALE;
+const BASKET_W = 14 * GIDEON_SCALE;
+const BASKET_H = 5 * GIDEON_SCALE;
+
+let gideonX = W / 2;
+const GIDEON_Y = H - GIDEON_H - BASKET_H - 80;
+
+// ============================================================
+// ITEM DEFINITIONS
+// ============================================================
+const ITEM_TYPES = {
+  sock:    { name: 'sock',    points: 10, w: 12, h: 14, special: false },
+  dress:   { name: 'dress',   points: 10, w: 14, h: 18, special: false },
+  shoe:    { name: 'shoe',    points: 10, w: 14, h: 10, special: false },
+  scarf:   { name: 'scarf',   points: 10, w: 16, h: 8,  special: false },
+  tshirt:  { name: 'tshirt',  points: 10, w: 16, h: 14, special: false },
+  towel:   { name: 'towel',   points: 10, w: 14, h: 16, special: false },
+  hat:     { name: 'hat',     points: 10, w: 14, h: 10, special: false },
+  weddingDress: { name: 'weddingDress', points: 50, w: 18, h: 22, special: true },
+  rings:   { name: 'rings',   points: 20, w: 10, h: 10, special: true },
+  iron:    { name: 'iron',    points: 0,  w: 16, h: 14, special: true },
+};
+
+const regularTypes = ['sock','dress','shoe','scarf','tshirt','towel','hat'];
+const specialTypes = ['weddingDress','rings','iron'];
+
+// ============================================================
+// ITEM SPRITES (drawn procedurally)
+// ============================================================
+function drawItem(x, y, type, scale) {
+  scale = scale || 2;
+  const cx = Math.round(x);
+  const cy = Math.round(y);
+  ctx.save();
+  switch(type) {
+    case 'sock':
+      drawPixelRect(cx, cy, 4*scale, 8*scale, COL.offWhite);
+      drawPixelRect(cx, cy+8*scale, 6*scale, 3*scale, COL.offWhite);
+      drawPixelRect(cx, cy, 4*scale, 2*scale, COL.sage);
+      break;
+    case 'dress':
+      drawPixelRect(cx+2*scale, cy, 4*scale, 3*scale, COL.rose);
+      drawPixelRect(cx, cy+3*scale, 8*scale, 7*scale, COL.rose);
+      drawPixelRect(cx+1*scale, cy+3*scale, 6*scale, 2*scale, COL.darkRose);
+      break;
+    case 'shoe':
+      drawPixelRect(cx, cy+2*scale, 7*scale, 3*scale, COL.darkGreen);
+      drawPixelRect(cx+5*scale, cy, 2*scale, 5*scale, COL.darkGreen);
+      drawPixelRect(cx, cy+4*scale, 8*scale, 1*scale, COL.sage);
+      break;
+    case 'scarf':
+      drawPixelRect(cx, cy, 8*scale, 2*scale, COL.rose);
+      drawPixelRect(cx+1*scale, cy+2*scale, 2*scale, 3*scale, COL.rose);
+      drawPixelRect(cx+5*scale, cy+2*scale, 2*scale, 3*scale, COL.rose);
+      drawPixelRect(cx, cy+1*scale, 8*scale, 1*scale, COL.darkRose);
+      break;
+    case 'tshirt':
+      drawPixelRect(cx+2*scale, cy, 4*scale, 2*scale, COL.sage);
+      drawPixelRect(cx, cy+2*scale, 8*scale, 6*scale, COL.sage);
+      drawPixelRect(cx, cy+2*scale, 2*scale, 3*scale, COL.darkGreen);
+      drawPixelRect(cx+6*scale, cy+2*scale, 2*scale, 3*scale, COL.darkGreen);
+      break;
+    case 'towel':
+      drawPixelRect(cx, cy, 7*scale, 9*scale, COL.offWhite);
+      drawPixelRect(cx, cy, 7*scale, 1*scale, COL.rose);
+      drawPixelRect(cx, cy+8*scale, 7*scale, 1*scale, COL.rose);
+      break;
+    case 'hat':
+      drawPixelRect(cx+1*scale, cy, 5*scale, 3*scale, COL.darkGreen);
+      drawPixelRect(cx, cy+3*scale, 7*scale, 2*scale, COL.sage);
+      break;
+    case 'weddingDress':
+      drawPixelRect(cx+3*scale, cy, 4*scale, 4*scale, COL.white);
+      drawPixelRect(cx+1*scale, cy+4*scale, 8*scale, 5*scale, COL.white);
+      drawPixelRect(cx, cy+6*scale, 10*scale, 5*scale, COL.offWhite);
+      drawPixelRect(cx+4*scale, cy+2*scale, 2*scale, 1*scale, COL.gold);
+      // sparkle
+      if (Math.random() > 0.5) {
+        ctx.fillStyle = COL.gold;
+        const sx = cx + (Math.random()*8|0)*scale;
+        const sy = cy + (Math.random()*10|0)*scale;
+        ctx.fillRect(sx, sy, scale, scale);
+      }
+      break;
+    case 'rings':
+      ctx.strokeStyle = COL.gold;
+      ctx.lineWidth = scale;
+      ctx.beginPath();
+      ctx.arc(cx + 2*scale, cy + 3*scale, 2.5*scale, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx + 5*scale, cy + 3*scale, 2.5*scale, 0, Math.PI*2);
+      ctx.stroke();
+      // shine
+      ctx.fillStyle = COL.gold;
+      ctx.fillRect(cx + 1*scale, cy + 1*scale, scale, scale);
+      break;
+    case 'iron':
+      drawPixelRect(cx+1*scale, cy, 2*scale, 3*scale, '#555');
+      drawPixelRect(cx, cy+3*scale, 8*scale, 4*scale, COL.ironGray);
+      drawPixelRect(cx+1*scale, cy+7*scale, 6*scale, 1*scale, '#999');
+      drawPixelRect(cx+2*scale, cy+1*scale, 1*scale, 1*scale, COL.red);
+      break;
+  }
+  ctx.restore();
+}
+
+// ============================================================
+// FALLING ITEMS
+// ============================================================
+let items = [];
+
+function spawnItem(type, fromX) {
+  const def = ITEM_TYPES[type];
+  items.push({
+    type: type,
+    x: fromX + (Math.random() - 0.5) * 20,
+    y: 90,
+    vx: (Math.random() - 0.5) * 40,
+    vy: 30 + Math.random() * 20,
+    w: def.w * 2,
+    h: def.h * 2,
+    points: def.points,
+    special: def.special,
+    rotation: 0,
+    rotSpeed: (Math.random() - 0.5) * 3,
+  });
+}
+
+// ============================================================
+// FLOOR ITEMS (missed, pile up visually)
+// ============================================================
+let floorItems = [];
+
+// ============================================================
+// PARTICLES
+// ============================================================
+let particles = [];
+
+function spawnParticles(x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 100,
+      vy: -Math.random() * 80 - 20,
+      life: 0.4 + Math.random() * 0.3,
+      color: color,
+      size: 2 + Math.random() * 3,
+    });
+  }
+}
+
+// ============================================================
+// COMEDY POP-UPS
+// ============================================================
+let popup = null;
+let popupTimer = 0;
+
+const popupMessages = {
+  firstMiss: 'Hallå, plocka upp det!',
+  combo5: 'Bra jobbat, Gideon!',
+  ironStun: 'Aj! Vem lämnade strykjärnet?!',
+  weddingDress: 'Rör inte brudklänningen!',
+  highMess: 'Det börjar bli stökigt...',
+  combo10: 'Du är en tvättmaskin!',
+};
+
+let shownPopups = {};
+function showPopup(key) {
+  if (shownPopups[key] && key !== 'combo5' && key !== 'combo10') return;
+  shownPopups[key] = true;
+  popup = popupMessages[key];
+  popupTimer = 2.0;
+}
+
+// ============================================================
+// DIFFICULTY
+// ============================================================
+function getDifficulty() {
+  const t = gameTime;
+  return {
+    throwInterval: Math.max(0.25, 1.2 - t * 0.015),
+    fallSpeedMult: 1.0 + t * 0.015,
+    saraSpeed: 60 + t * 1.5,
+    doubleThrow: t > 30,
+    tripleThrow: t > 60,
+    specialChance: Math.min(0.3, t > 15 ? 0.05 + (t - 15) * 0.003 : 0),
+  };
+}
+
+// ============================================================
+// BACKGROUND DRAWING
+// ============================================================
+function drawBackground() {
+  // Wall
+  drawPixelRect(0, 0, W, H, COL.wall);
+
+  // Floor — wood planks
+  drawPixelRect(0, H - 80, W, 80, COL.floor);
+  // Plank lines
+  for (let py = H - 80; py < H; py += 16) {
+    drawPixelRect(0, py, W, 1, COL.floorDark);
+  }
+  // Staggered vertical plank gaps
+  for (let py = H - 80; py < H; py += 16) {
+    const offset = ((py - (H - 80)) / 16) % 2 === 0 ? 0 : 40;
+    for (let px = offset; px < W; px += 80) {
+      drawPixelRect(px, py, 1, 16, COL.floorDark);
+    }
+  }
+  // Baseboard
+  drawPixelRect(0, H - 80, W, 3, COL.floorDark);
+
+  // Window
+  drawPixelRect(280, 30, 80, 60, '#a8c8e8');
+  drawPixelRect(280, 30, 80, 3, COL.sage);
+  drawPixelRect(280, 87, 80, 3, COL.sage);
+  drawPixelRect(280, 30, 3, 60, COL.sage);
+  drawPixelRect(357, 30, 3, 60, COL.sage);
+  drawPixelRect(318, 30, 3, 60, COL.sage);
+  drawPixelRect(280, 58, 80, 3, COL.sage);
+
+  // Curtains
+  drawPixelRect(272, 25, 10, 70, COL.rose);
+  drawPixelRect(358, 25, 10, 70, COL.rose);
+
+  // Couch
+  drawPixelRect(20, H - 130, 100, 50, COL.sage);
+  drawPixelRect(15, H - 140, 15, 60, COL.darkGreen);
+  drawPixelRect(110, H - 140, 15, 60, COL.darkGreen);
+  drawPixelRect(20, H - 135, 100, 8, COL.darkGreen);
+
+  // Lamp
+  drawPixelRect(160, 40, 4, 80, COL.ironGray);
+  drawPixelRect(148, 30, 28, 15, COL.rose);
+  drawPixelRect(155, 23, 14, 10, COL.darkRose);
+
+  // Rug
+  ctx.globalAlpha = 0.3;
+  drawPixelRect(100, H - 60, 200, 40, COL.rose);
+  ctx.globalAlpha = 1;
+
+  // Instructions on wall
+  ctx.globalAlpha = 0.18;
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = COL.darkGreen;
+  const instructions = [
+    '👗 Kläder = +10 poäng',
+    '👰 Brudklänning = +50 poäng',
+    '💍 Ringar = x2 poäng i 5 sek',
+    '⚠️  Strykjärn = Gideon stunnas!',
+  ];
+  for (let i = 0; i < instructions.length; i++) {
+    ctx.fillText(instructions[i], 18, 115 + i * 16);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// DRAW SARA
+// ============================================================
+function drawSara() {
+  const sprite = saraThrowAnim > 0 ? saraThrowSprite : saraSprite;
+  const sx = saraX - SARA_W / 2;
+  const sy = 15;
+  drawPixelChar(sx, sy, sprite, saraPalette, SARA_SCALE);
+}
+
+// ============================================================
+// DRAW GIDEON
+// ============================================================
+function drawGideon() {
+  const bx = gideonX - BASKET_W / 2;
+  const by = GIDEON_Y + GIDEON_H - 5;
+
+  // Stun effect
+  if (stunTimer > 0) {
+    ctx.globalAlpha = 0.5 + 0.5 * Math.sin(stunTimer * 20);
+  }
+
+  // Body
+  const gx = gideonX - GIDEON_W / 2;
+  drawPixelChar(gx, GIDEON_Y, gideonSprite, gideonPalette, GIDEON_SCALE);
+
+  // Basket
+  drawPixelChar(bx, by, basketSprite, gideonPalette, GIDEON_SCALE);
+
+  if (stunTimer > 0) {
+    // Stun stars
+    ctx.fillStyle = COL.gold;
+    const t = performance.now() / 200;
+    for (let i = 0; i < 3; i++) {
+      const angle = t + i * 2.1;
+      const sx = gideonX + Math.cos(angle) * 20;
+      const sy = GIDEON_Y - 5 + Math.sin(angle) * 8;
+      ctx.fillText('★', sx, sy);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ============================================================
+// DRAW FLOOR MESS
+// ============================================================
+function drawFloorMess() {
+  for (const fi of floorItems) {
+    drawItem(fi.x, fi.y, fi.type, 1.5);
+  }
+}
+
+// ============================================================
+// DRAW HUD
+// ============================================================
+function drawHUD() {
+  ctx.font = '16px monospace';
+  ctx.textAlign = 'left';
+
+  // Score
+  ctx.fillStyle = COL.darkGreen;
+  ctx.fillText('Poäng: ' + score, 10, 20);
+
+  // High score
+  ctx.textAlign = 'right';
+  ctx.fillText('Bäst: ' + highScore, W - 10, 20);
+
+  // Multiplier
+  if (multiplier > 1) {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = COL.gold;
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText('x' + multiplier + '!', W / 2, 20);
+    ctx.font = '16px monospace';
+  }
+
+  // Mess meter bar
+  ctx.textAlign = 'left';
+  const barX = 10, barY = 30, barW = 100, barH = 10;
+  ctx.strokeStyle = COL.darkGreen;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(barX, barY, barW, barH);
+  const pct = messCount / MESS_MAX;
+  ctx.fillStyle = pct > 0.7 ? COL.red : pct > 0.4 ? COL.gold : COL.sage;
+  ctx.fillRect(barX + 1, barY + 1, (barW - 2) * pct, barH - 2);
+  ctx.fillStyle = COL.darkGreen;
+  ctx.font = '9px monospace';
+  ctx.fillText('Stök', barX, barY + barH + 10);
+}
+
+// ============================================================
+// DRAW POP-UP
+// ============================================================
+function drawPopup() {
+  if (popup && popupTimer > 0) {
+    ctx.save();
+    const alpha = Math.min(1, popupTimer * 2);
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    const tw = ctx.measureText(popup).width;
+    const px = W / 2, py = H / 2 - 80;
+    // Bubble
+    ctx.fillStyle = COL.offWhite;
+    const pad = 10;
+    ctx.beginPath();
+    roundRect(ctx, px - tw/2 - pad, py - 14, tw + pad*2, 28, 6);
+    ctx.fill();
+    ctx.strokeStyle = COL.darkGreen;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    roundRect(ctx, px - tw/2 - pad, py - 14, tw + pad*2, 28, 6);
+    ctx.stroke();
+    ctx.fillStyle = COL.darkGreen;
+    ctx.fillText(popup, px, py + 5);
+    ctx.restore();
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+}
+
+// ============================================================
+// MUTE BUTTON
+// ============================================================
+const muteBtn = { x: W - 35, y: H - 30, w: 25, h: 20 };
+
+function drawMuteBtn() {
+  ctx.save();
+  ctx.fillStyle = muted ? '#cc6666' : COL.sage;
+  ctx.fillRect(muteBtn.x, muteBtn.y, muteBtn.w, muteBtn.h);
+  ctx.fillStyle = COL.offWhite;
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(muted ? '🔇' : '🔊', muteBtn.x + muteBtn.w/2, muteBtn.y + 14);
+  ctx.restore();
+}
+
+function checkMuteClick(px, py) {
+  if (px >= muteBtn.x && px <= muteBtn.x + muteBtn.w &&
+      py >= muteBtn.y && py <= muteBtn.y + muteBtn.h) {
+    muted = !muted;
+    saveMute();
+    if (muted) stopMusic(); else if (state === STATE.PLAYING) startMusic();
+    return true;
+  }
+  return false;
+}
+
+
+
+// ============================================================
+// TITLE SCREEN
+// ============================================================
+function drawTitle() {
+  drawBackground();
+
+  // Overlay
+  ctx.fillStyle = 'rgba(244,240,235,0.85)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Title
+  ctx.textAlign = 'center';
+  ctx.fillStyle = COL.darkGreen;
+  ctx.font = 'bold 26px monospace';
+  ctx.fillText('Gideons', W/2, 150);
+  ctx.font = 'bold 22px monospace';
+  ctx.fillText('Tvättnightmare', W/2, 180);
+
+  // Subtitle
+  ctx.fillStyle = COL.rose;
+  ctx.font = '14px monospace';
+  ctx.fillText('En tvättkatastrof på bröllopsdagen!', W/2, 210);
+
+  // Draw Sara and Gideon preview
+  drawPixelChar(W/2 - 60 - SARA_W/2, 260, saraSprite, saraPalette, SARA_SCALE);
+  drawPixelChar(W/2 + 60 - GIDEON_W/2, 270, gideonSprite, gideonPalette, GIDEON_SCALE);
+  drawPixelChar(W/2 + 60 - BASKET_W/2, 270 + GIDEON_H - 5, basketSprite, gideonPalette, GIDEON_SCALE);
+
+  // Hearts between them
+  ctx.fillStyle = COL.rose;
+  ctx.font = '20px serif';
+  ctx.fillText('♥', W/2, 300);
+
+  // Play prompt
+  ctx.fillStyle = COL.darkGreen;
+  ctx.font = '16px monospace';
+  const blink = Math.sin(performance.now() / 400) > 0;
+  if (blink) ctx.fillText('Tryck för att spela', W/2, 420);
+
+  // High score
+  if (highScore > 0) {
+    ctx.fillStyle = COL.sage;
+    ctx.font = '12px monospace';
+    ctx.fillText('Bästa poäng: ' + highScore, W/2, 460);
+  }
+
+  // Instructions
+  ctx.fillStyle = '#888';
+  ctx.font = '11px monospace';
+  ctx.fillText('Flytta musen/fingret för att fånga kläder!', W/2, 500);
+
+  drawMuteBtn();
+}
+
+// ============================================================
+// GAME OVER SCREEN
+// ============================================================
+function drawGameOver() {
+  drawBackground();
+  drawFloorMess();
+
+  // Dark overlay
+  ctx.fillStyle = 'rgba(30,30,30,0.7)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Panel
+  ctx.fillStyle = COL.offWhite;
+  ctx.beginPath();
+  roundRect(ctx, 60, 150, W - 120, 280, 12);
+  ctx.fill();
+  ctx.strokeStyle = COL.darkGreen;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  roundRect(ctx, 60, 150, W - 120, 280, 12);
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = COL.darkGreen;
+  ctx.font = 'bold 24px monospace';
+  ctx.fillText('Game Over!', W/2, 195);
+
+  ctx.font = '14px monospace';
+  ctx.fillStyle = COL.darkGreen;
+  ctx.fillText('Det blev för stökigt...', W/2, 225);
+
+  // Score
+  ctx.font = 'bold 20px monospace';
+  ctx.fillStyle = COL.sage;
+  ctx.fillText('Poäng: ' + score, W/2, 270);
+
+  if (newRecord) {
+    ctx.fillStyle = COL.gold;
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText('★ Nytt rekord! ★', W/2, 300);
+  }
+
+  ctx.fillStyle = COL.darkGreen;
+  ctx.font = '13px monospace';
+  ctx.fillText('Bästa: ' + highScore, W/2, 330);
+
+  // Play again button
+  ctx.fillStyle = COL.sage;
+  ctx.beginPath();
+  roundRect(ctx, W/2 - 80, 360, 160, 40, 8);
+  ctx.fill();
+  ctx.fillStyle = COL.offWhite;
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText('Spela igen', W/2, 386);
+
+  drawMuteBtn();
+}
+
+// ============================================================
+// GAME RESET
+// ============================================================
+function resetGame() {
+  score = 0;
+  messCount = 0;
+  gameTime = 0;
+  multiplier = 1;
+  multiplierTimer = 0;
+  stunTimer = 0;
+  combo = 0;
+  maxCombo = 0;
+  newRecord = false;
+  items = [];
+  floorItems = [];
+  particles = [];
+  popup = null;
+  popupTimer = 0;
+  shownPopups = {};
+  saraX = W / 2;
+  saraTargetX = W / 2;
+  saraMoveTimer = 0;
+  saraThrowTimer = 0.5;
+  saraThrowAnim = 0;
+  gideonX = W / 2;
+  state = STATE.PLAYING;
+  startMusic();
+}
+
+// ============================================================
+// UPDATE GAME
+// ============================================================
+function updateGame(dt) {
+  gameTime += dt;
+  const diff = getDifficulty();
+
+  // Multiplier timer
+  if (multiplierTimer > 0) {
+    multiplierTimer -= dt;
+    if (multiplierTimer <= 0) { multiplier = 1; multiplierTimer = 0; }
+  }
+
+  // Stun timer
+  if (stunTimer > 0) {
+    stunTimer -= dt;
+    if (stunTimer < 0) stunTimer = 0;
+  }
+
+  // Popup timer
+  if (popupTimer > 0) {
+    popupTimer -= dt;
+    if (popupTimer <= 0) { popup = null; }
+  }
+
+  // Sara movement
+  saraMoveTimer -= dt;
+  if (saraMoveTimer <= 0) {
+    saraTargetX = 40 + Math.random() * (W - 80);
+    saraMoveTimer = 1.0 + Math.random() * 1.5;
+  }
+  const saraDx = saraTargetX - saraX;
+  saraX += saraDx * Math.min(1, dt * diff.saraSpeed / 30);
+
+  // Sara throw
+  saraThrowTimer -= dt;
+  saraThrowAnim = Math.max(0, saraThrowAnim - dt);
+  if (saraThrowTimer <= 0) {
+    saraThrowTimer = diff.throwInterval;
+    saraThrowAnim = 0.3;
+
+    // Choose item type
+    let type;
+    if (Math.random() < diff.specialChance) {
+      type = specialTypes[Math.random() * specialTypes.length | 0];
+    } else {
+      type = regularTypes[Math.random() * regularTypes.length | 0];
+    }
+    spawnItem(type, saraX);
+
+    // Double/triple throw
+    if (diff.doubleThrow && Math.random() < 0.4) {
+      const type2 = regularTypes[Math.random() * regularTypes.length | 0];
+      setTimeout(() => { if (state === STATE.PLAYING) spawnItem(type2, saraX); }, 150);
+    }
+    if (diff.tripleThrow && Math.random() < 0.2) {
+      const type3 = regularTypes[Math.random() * regularTypes.length | 0];
+      setTimeout(() => { if (state === STATE.PLAYING) spawnItem(type3, saraX); }, 300);
+    }
+  }
+
+  // Move Gideon (follow pointer)
+  if (stunTimer <= 0) {
+    const targetX = Math.max(BASKET_W/2, Math.min(W - BASKET_W/2, pointerX));
+    gideonX += (targetX - gideonX) * Math.min(1, dt * 12);
+  }
+
+  // Update items
+  const basketTop = GIDEON_Y + GIDEON_H - 5;
+  const basketBot = basketTop + BASKET_H;
+  const basketLeft = gideonX - BASKET_W / 2 + 6;
+  const basketRight = gideonX + BASKET_W / 2 - 6;
+
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    it.vy += 200 * dt * diff.fallSpeedMult;
+    it.x += it.vx * dt;
+    it.y += it.vy * dt;
+    it.rotation += it.rotSpeed * dt;
+
+    // Keep in bounds horizontally
+    if (it.x < 0) { it.x = 0; it.vx *= -0.5; }
+    if (it.x + it.w > W) { it.x = W - it.w; it.vx *= -0.5; }
+
+    // Check catch (basket collision)
+    const itemCX = it.x + it.w / 2;
+    const itemBot = it.y + it.h;
+    if (itemBot >= basketTop && it.y <= basketBot &&
+        itemCX >= basketLeft && itemCX <= basketRight && it.vy > 0) {
+      // Caught!
+      items.splice(i, 1);
+
+      if (it.type === 'iron') {
+        stunTimer = 1.5;
+        sfxIron();
+        showPopup('ironStun');
+        combo = 0;
+        spawnParticles(gideonX, basketTop, '#888', 8);
+      } else if (it.type === 'rings') {
+        multiplier = 2;
+        multiplierTimer = 5;
+        score += it.points * multiplier;
+        sfxRings();
+        combo++;
+        spawnParticles(itemCX, basketTop, COL.gold, 12);
+      } else if (it.type === 'weddingDress') {
+        score += it.points * multiplier;
+        sfxWeddingDress();
+        showPopup('weddingDress');
+        combo++;
+        spawnParticles(itemCX, basketTop, COL.offWhite, 15);
+      } else {
+        score += it.points * multiplier;
+        sfxCatch();
+        combo++;
+        spawnParticles(itemCX, basketTop, COL.sage, 6);
+      }
+
+      if (combo === 5) showPopup('combo5');
+      if (combo === 10) showPopup('combo10');
+      if (combo > maxCombo) maxCombo = combo;
+      continue;
+    }
+
+    // Check floor
+    if (it.y + it.h >= H - 15) {
+      items.splice(i, 1);
+      if (it.type === 'iron') {
+        // Iron on floor is ok; no penalty
+        continue;
+      }
+      // Missed
+      floorItems.push({
+        x: it.x,
+        y: H - 50 - it.h * 0.7 + Math.random() * 5,
+        type: it.type,
+      });
+      messCount++;
+      combo = 0;
+      sfxDrop();
+
+      if (messCount === 1) showPopup('firstMiss');
+      if (messCount === Math.floor(MESS_MAX * 0.7)) showPopup('highMess');
+
+      if (messCount >= MESS_MAX) {
+        // Game over
+        stopMusic();
+        sfxGameOver();
+        if (score > highScore) {
+          highScore = score;
+          newRecord = true;
+          saveHighScore();
+        }
+        state = STATE.GAME_OVER;
+        return;
+      }
+    }
+  }
+
+  // Update particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 150 * dt;
+    p.life -= dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+// ============================================================
+// RENDER GAME
+// ============================================================
+function renderGame() {
+  drawBackground();
+  drawFloorMess();
+
+  // Draw items
+  for (const it of items) {
+    drawItem(it.x, it.y, it.type, 2);
+  }
+
+  // Draw particles
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life * 2.5);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+
+  drawSara();
+  drawGideon();
+  drawHUD();
+  drawPopup();
+  drawMuteBtn();
+}
+
+// ============================================================
+// RESIZE
+// ============================================================
+function resize() {
+  const parent = canvas.parentElement;
+  const pw = parent.clientWidth || window.innerWidth;
+  const ph = parent.clientHeight || window.innerHeight;
+  const scale = Math.min(pw / W, ph / H);
+  canvas.style.width = (W * scale) + 'px';
+  canvas.style.height = (H * scale) + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+let lastTime = 0;
+
+function gameLoop(timestamp) {
+  requestAnimationFrame(gameLoop);
+  const dt = Math.min(0.05, (timestamp - lastTime) / 1000);
+  lastTime = timestamp;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (state === STATE.TITLE) {
+    drawTitle();
+    if (clicked) {
+      clicked = false;
+      resetGame();
+    }
+  } else if (state === STATE.PLAYING) {
+    updateGame(dt);
+    renderGame();
+    clicked = false;
+  } else if (state === STATE.GAME_OVER) {
+    drawGameOver();
+    if (clicked) {
+      clicked = false;
+      resetGame();
+    }
+  }
+}
+
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
