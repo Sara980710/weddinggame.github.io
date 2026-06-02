@@ -1,4 +1,4 @@
-# Gideons Tvättnightmare — Game Plan
+# Tvättspelet — Game Plan
 
 A 16-bit pixel art catcher game where Sara throws clothes from the top of the screen and Gideon catches them with a laundry basket. Single HTML file, embeddable in Google Sites via iframe. Endless survival mode with fast chaos escalation.
 
@@ -11,7 +11,7 @@ A 16-bit pixel art catcher game where Sara throws clothes from the top of the sc
 | Controls | Mouse-follow on desktop, finger-follow on mobile |
 | Game length | Endless / survival (play until mess meter fills) |
 | Difficulty | Fast chaos — ramps up quickly |
-| Clothing items | Socks, dresses/skirts, shoes/heels, scarves, t-shirts, towels, hats |
+| Clothing items | Socks, dresses/skirts, pants, scarves, t-shirts, hoodies, hats |
 | Special items | Wedding dress (big bonus), wedding rings (score multiplier), iron (stuns Gideon) |
 | Lives/health | Mess meter — clothes pile up on floor visually, game over when full |
 | Comedy pop-ups | Subtle, a few |
@@ -42,7 +42,7 @@ A 16-bit pixel art catcher game where Sara throws clothes from the top of the sc
 
 ### Phase 3: Falling Items
 - [ ] Define item types with properties:
-  - **Regular clothes** (socks, dress, shoes, scarf, t-shirt, towel, hat): +10 pts each, normal fall speed, different widths
+  - **Regular clothes** (socks, dress, pants, scarf, t-shirt, hoodie, hat): +10 pts each, normal fall speed, different widths
   - **Wedding dress**: +50 pts, slightly larger, glows/sparkles
   - **Wedding rings**: activates 2x score multiplier for 5 seconds, small size
   - **Iron**: stuns Gideon for 1.5 seconds (can't move), slightly larger, distinct look
@@ -74,7 +74,7 @@ A 16-bit pixel art catcher game where Sara throws clothes from the top of the sc
   - High mess → *"Det börjar bli stökigt..."* (It's getting messy...)
 
 ### Phase 7: UI Screens
-- [ ] **Title screen**: "Gideons Tvättnightmare", pixel art of Sara and Gideon, *"Tryck för att spela"* (Tap to play), mute button
+- [ ] **Title screen**: "Tvättspelet", pixel art of Sara and Gideon, *"Tryck för att spela"* (Tap to play), mute button
 - [ ] **HUD during gameplay**: Score (top-left), high score (top-right), multiplier indicator when active, subtle mess bar
 - [ ] **Game over screen**: Final score, high score (if beaten → *"Nytt rekord!"*), *"Spela igen"* (Play again) button
 - [ ] Save/load high score from localStorage

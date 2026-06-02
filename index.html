@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Gideons Tvättnightmare</title>
+  <title>Tvättspelet</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
@@ -27,7 +27,7 @@ canvas {
 <script>
 'use strict';
 // ============================================================
-// Gideons Tvättnightmare — Single-file 16-bit pixel catcher game
+  // Tvättspelet — Single-file 16-bit pixel catcher game
 // ============================================================
 
 const canvas = document.getElementById('gc');
@@ -138,6 +138,7 @@ const STATE = { TITLE: 0, PLAYING: 1, GAME_OVER: 2 };
 let state = STATE.TITLE;
 let score = 0;
 let highScore = 0;
+let prevHighScore = 0;
 let newRecord = false;
 let gameTime = 0;
 let multiplier = 1;
@@ -166,6 +167,7 @@ function saveMute() {
 let pointerX = W / 2;
 let pointerActive = false;
 let clicked = false;
+let clickX = 0, clickY = 0;
 
 function getCanvasPos(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
@@ -184,7 +186,9 @@ canvas.addEventListener('mousedown', e => {
   ensureAudio();
   const p = getCanvasPos(e.clientX, e.clientY);
   pointerX = p.x;
-  if (!checkMuteClick(p.x, p.y)) clicked = true;
+  clickX = p.x;
+  clickY = p.y;
+  if (!checkClearScoreClick(p.x, p.y) && !checkMuteClick(p.x, p.y)) clicked = true;
   pointerActive = true;
 });
 canvas.addEventListener('touchstart', e => {
@@ -193,7 +197,9 @@ canvas.addEventListener('touchstart', e => {
   if (e.touches.length > 0) {
     const p = getCanvasPos(e.touches[0].clientX, e.touches[0].clientY);
     pointerX = p.x;
-    if (!checkMuteClick(p.x, p.y)) clicked = true;
+    clickX = p.x;
+    clickY = p.y;
+    if (!checkClearScoreClick(p.x, p.y) && !checkMuteClick(p.x, p.y)) clicked = true;
     pointerActive = true;
   }
 }, { passive: false });
@@ -360,7 +366,7 @@ Promise.all([
   loadImageCandidates(['sara_down.png', 'Sara_hands_down.jpg']).then(img => {
     photoSprites.saraDown = preprocessCharacterImage(img, 900, 48);
   }),
-  loadImageCandidates(['sara_up.png', 'Sara_hands_up.jpg']).then(img => {
+  loadImageCandidates(['Sara_hands_up_crop_nobg.png', 'Sara_hands_up_crop.jpg', 'Sara_hands_up.jpg', 'sara_up.png']).then(img => {
     photoSprites.saraUp = preprocessCharacterImage(img, 900, 48);
   }),
 ]).catch(() => {
@@ -368,80 +374,22 @@ Promise.all([
 });
 
 // ============================================================
-// SARA SPRITE (top of screen, throws clothes)
+// SARA (photo-based rendering only)
 // ============================================================
-const saraPalette = {
-  1: COL.saraHair,   // long black hair
-  2: COL.skin,       // skin
-  3: COL.white,      // wedding dress
-  4: '#e8e8e8',      // dress shadow/folds
-  5: COL.brownEye,   // brown eyes
-  6: COL.red,        // mouth
-  7: COL.gold,       // gold accent
+
+// Basket sprite palette (simple colors only)
+const basketPalette = {
+  6: COL.floor,          // basket
+  7: '#8B6914',          // basket dark
 };
-
-const saraSprite = [
-  [0,0,0,0,0,1,1,1,1,0,0,0,0,0],
-  [0,0,0,0,1,1,1,1,1,1,0,0,0,0],
-  [0,0,0,1,1,1,1,1,1,1,1,0,0,0],
-  [0,0,0,1,1,2,2,2,2,1,1,0,0,0],
-  [0,0,0,1,2,2,2,2,2,2,1,0,0,0],
-  [0,0,0,1,2,5,2,2,5,2,1,0,0,0],
-  [0,0,0,1,2,2,2,2,2,2,1,0,0,0],
-  [0,0,0,1,0,2,6,6,2,0,1,0,0,0],
-  [0,0,0,1,0,0,2,2,0,0,1,0,0,0],
-  [0,0,0,1,3,3,7,7,3,3,1,0,0,0],
-  [0,0,0,1,3,3,3,3,3,3,1,0,0,0],
-  [0,0,1,1,3,3,3,3,3,3,1,1,0,0],
-  [0,0,1,2,4,3,3,3,3,4,2,1,0,0],
-  [0,1,1,2,0,3,7,7,3,0,2,1,1,0],
-  [0,1,0,0,3,3,3,3,3,3,0,0,1,0],
-  [0,1,0,3,3,3,3,3,3,3,3,0,1,0],
-  [1,1,0,3,3,3,3,3,3,3,3,0,1,1],
-  [1,0,3,3,4,3,3,3,3,4,3,3,0,1],
-  [0,0,3,3,3,3,3,3,3,3,3,3,0,0],
-  [0,3,3,4,3,3,3,3,3,3,4,3,3,0],
-  [0,3,3,3,3,3,3,3,3,3,3,3,3,0],
-  [3,3,3,4,3,3,3,3,3,3,4,3,3,3],
-  [3,3,4,3,3,3,3,3,3,3,3,4,3,3],
-  [3,4,3,3,3,3,3,3,3,3,3,3,4,3],
-];
-
-// Throwing arm frame
-const saraThrowSprite = [
-  [0,0,0,0,0,1,1,1,1,0,0,0,0,0],
-  [0,0,0,0,1,1,1,1,1,1,0,0,0,0],
-  [0,0,0,1,1,1,1,1,1,1,1,0,0,0],
-  [0,0,0,1,1,2,2,2,2,1,1,0,0,0],
-  [0,0,0,1,2,2,2,2,2,2,1,0,0,0],
-  [0,0,0,1,2,5,2,2,5,2,1,0,0,0],
-  [0,0,0,1,2,2,2,2,2,2,1,0,0,0],
-  [0,0,0,1,0,2,6,6,2,0,1,0,0,0],
-  [0,0,0,1,0,0,2,2,0,0,1,0,0,0],
-  [0,0,0,1,3,3,7,7,3,3,1,0,0,0],
-  [0,0,0,1,3,3,3,3,3,3,1,0,0,0],
-  [2,0,1,1,3,3,3,3,3,3,1,1,0,2],
-  [2,0,1,2,4,3,3,3,3,4,2,1,0,0],
-  [2,1,1,2,0,3,7,7,3,0,2,1,1,0],
-  [0,1,0,0,3,3,3,3,3,3,0,0,1,0],
-  [0,1,0,3,3,3,3,3,3,3,3,0,1,0],
-  [1,1,0,3,3,3,3,3,3,3,3,0,1,1],
-  [1,0,3,3,4,3,3,3,3,4,3,3,0,1],
-  [0,0,3,3,3,3,3,3,3,3,3,3,0,0],
-  [0,3,3,4,3,3,3,3,3,3,4,3,3,0],
-  [0,3,3,3,3,3,3,3,3,3,3,3,3,0],
-  [3,3,3,4,3,3,3,3,3,3,4,3,3,3],
-  [3,3,4,3,3,3,3,3,3,3,3,4,3,3],
-  [3,4,3,3,3,3,3,3,3,3,3,3,4,3],
-];
 
 const SARA_SCALE = 3;
 const SARA_W = 14 * SARA_SCALE;
 const SARA_H = 24 * SARA_SCALE;
 const SARA_PHOTO_W = 68;
 const SARA_PHOTO_H = 102;
-const SARA_PHOTO_DOWN_W = 49;
-const SARA_PHOTO_DOWN_H = 75;
+const SARA_PHOTO_DOWN_W = 54;
+const SARA_PHOTO_DOWN_H = 82;
 const SARA_PHOTO_BRIGHTNESS = 1.5;
 
 let saraX = W / 2;
@@ -453,38 +401,8 @@ let saraThrowAnim = 0;
 let saraThrowInterval = 1.2;
 
 // ============================================================
-// GIDEON SPRITE (bottom, catches with basket)
+// GIDEON (photo-based rendering only, basket sprite for display)
 // ============================================================
-const gideonPalette = {
-  1: COL.gideonHair,     // blond hair
-  2: COL.skin,           // skin
-  3: '#2a2a3a',          // dark suit jacket
-  4: '#222230',          // suit pants
-  5: COL.blueGreen,      // blue-green eye
-  6: COL.floor,          // basket
-  7: '#8B6914',          // basket dark
-  8: COL.gideonHairDark, // hair shadow
-  9: COL.white,          // white shirt
-  10: '#cc3333',         // red tie
-};
-
-const gideonSprite = [
-  [0,0,0,1,1,1,1,0,0,0],
-  [0,0,1,8,1,1,8,0,0,0],
-  [0,1,1,2,2,2,0,0,0,0],
-  [0,1,2,2,2,2,2,0,0,0],
-  [0,8,2,2,5,2,2,0,0,0],
-  [0,0,2,2,2,2,2,2,0,0],
-  [0,0,0,2,2,2,2,0,0,0],
-  [0,0,0,0,2,0,0,0,0,0],
-  [0,0,0,3,9,3,3,0,0,0],
-  [0,0,3,3,10,3,3,0,0,0],
-  [0,0,3,3,10,3,3,2,0,0],
-  [0,0,3,3,3,3,3,2,2,0],
-  [0,0,0,3,3,3,0,0,2,0],
-  [0,0,0,4,0,4,0,0,0,0],
-  [0,0,0,4,0,4,0,0,0,0],
-];
 
 // Basket
 const basketSprite = [
@@ -501,7 +419,7 @@ const GIDEON_H = 15 * GIDEON_SCALE;
 const REAL_HEIGHT_RATIO_GIDEON_TO_SARA = 190 / 167;
 const GIDEON_PHOTO_H = Math.round(SARA_PHOTO_H * REAL_HEIGHT_RATIO_GIDEON_TO_SARA);
 const GIDEON_PHOTO_W = Math.round(GIDEON_PHOTO_H * (64 / 96));
-const BASKET_SCALE = 5;
+const BASKET_SCALE = 6;
 const BASKET_W = 14 * BASKET_SCALE;
 const BASKET_H = 5 * BASKET_SCALE;
 const BASKET_X_OFFSET = 1;
@@ -515,20 +433,20 @@ const GIDEON_Y = H - 85 - GIDEON_BASKET_OFFSET_Y - BASKET_H;
 // ITEM DEFINITIONS
 // ============================================================
 const ITEM_TYPES = {
-  sock:    { name: 'sock',    points: 10, w: 12, h: 14, special: false },
-  dress:   { name: 'dress',   points: 10, w: 14, h: 18, special: false },
-  shoe:    { name: 'shoe',    points: 10, w: 14, h: 10, special: false },
-  scarf:   { name: 'scarf',   points: 10, w: 16, h: 8,  special: false },
-  tshirt:  { name: 'tshirt',  points: 10, w: 16, h: 14, special: false },
-  towel:   { name: 'towel',   points: 10, w: 14, h: 16, special: false },
-  hat:     { name: 'hat',     points: 10, w: 14, h: 10, special: false },
-  weddingDress: { name: 'weddingDress', points: 50, w: 18, h: 22, special: true },
-  rings:   { name: 'rings',   points: 20, w: 10, h: 10, special: true },
-  iron:    { name: 'iron',    points: 0,  w: 16, h: 14, special: true },
+  sock:         { points: 10, w: 12, h: 14, special: false, legendIconH: 8,  legendText: null },
+  dress:        { points: 10, w: 14, h: 18, special: false, legendIconH: 10, legendText: null },
+  pants:        { points: 10, w: 14, h: 14, special: false, legendIconH: 8,  legendText: null },
+  scarf:        { points: 10, w: 16, h: 8,  special: false, legendIconH: 6,  legendText: null },
+  tshirt:       { points: 10, w: 16, h: 14, special: false, legendIconH: 8,  legendText: null },
+  hoodie:       { points: 10, w: 14, h: 16, special: false, legendIconH: 9,  legendText: null },
+  hat:          { points: 10, w: 14, h: 10, special: false, legendIconH: 5,  legendText: null },
+  weddingDress: { points: 50, w: 18, h: 22, special: true,  legendIconH: 11, legendText: 'Brudklänning: +50 poäng',   wallText: 'Brudklänning: +50 poäng' },
+  rings:        { points: 20, w: 10, h: 10, special: true,  legendIconH: 6,  legendText: 'Ringar: x2 poäng i 5 sek', wallText: 'Ringar: x2 poäng i 5 sek' },
+  iron:         { points: 0,  w: 16, h: 14, special: true,  legendIconH: 8,  legendText: 'Strykjärn: Gideon stunnad', wallText: 'Strykjärn: Gideon stunnad' },
 };
 
-const regularTypes = ['sock','dress','shoe','scarf','tshirt','towel','hat'];
-const specialTypes = ['weddingDress','rings','iron'];
+const regularTypes = Object.keys(ITEM_TYPES).filter(k => !ITEM_TYPES[k].special);
+const specialTypes = Object.keys(ITEM_TYPES).filter(k => ITEM_TYPES[k].special);
 
 // ============================================================
 // ITEM SPRITES (drawn procedurally)
@@ -541,66 +459,86 @@ function drawItem(x, y, type, scale) {
   switch(type) {
     case 'sock':
       // Pair of socks: shaft has constant width, foot/toe section flares outward.
-      drawPixelRect(cx, cy + 1*scale, 3*scale, 6*scale, COL.offWhite);
-      drawPixelRect(cx, cy + 1*scale, 3*scale, 2*scale, COL.sage);
-      drawPixelRect(cx - 1*scale, cy + 6*scale, 4*scale, 2*scale, COL.offWhite);
-      drawPixelRect(cx + 1*scale, cy + 3*scale, 1*scale, 4*scale, '#e8e8e8');
+      drawPixelRect(cx, cy + 1*scale, 3*scale, 7*scale, COL.sage);
+      drawPixelRect(cx- 2*scale, cy + 6*scale, 4*scale, 3*scale, COL.sage);
+      drawPixelRect(cx- 3*scale, cy + 6.5*scale, 4*scale, 2*scale, COL.sage);
+      drawPixelRect(cx, cy + 2*scale, 3*scale, 1*scale, COL.offWhite);
 
-      drawPixelRect(cx + 4*scale, cy + 1*scale, 3*scale, 6*scale, COL.offWhite);
-      drawPixelRect(cx + 4*scale, cy + 1*scale, 3*scale, 2*scale, COL.sage);
-      drawPixelRect(cx + 4*scale, cy + 6*scale, 4*scale, 2*scale, COL.offWhite);
-      drawPixelRect(cx + 5*scale, cy + 3*scale, 1*scale, 4*scale, '#e8e8e8');
+      drawPixelRect(cx + 4*scale, cy + 1*scale, 3*scale, 7*scale, COL.sage);
+      drawPixelRect(cx + 5*scale, cy + 6*scale, 4*scale, 3*scale, COL.sage);
+      drawPixelRect(cx + 6*scale, cy + 6.5*scale, 4*scale, 2*scale, COL.sage);
+      drawPixelRect(cx + 4*scale, cy + 2*scale, 3*scale, 1*scale, COL.offWhite);
       break;
-    case 'dress':
-      drawPixelRect(cx + 3*scale, cy, 3*scale, 2*scale, COL.darkRose);
-      drawPixelRect(cx + 2*scale, cy + 2*scale, 5*scale, 2*scale, COL.rose);
-      drawPixelRect(cx + 1*scale, cy + 4*scale, 7*scale, 2*scale, COL.rose);
-      drawPixelRect(cx, cy + 6*scale, 9*scale, 4*scale, COL.rose);
-      drawPixelRect(cx + 4*scale, cy + 3*scale, 1*scale, 7*scale, COL.darkRose);
-      drawPixelRect(cx + 2*scale, cy + 6*scale, 1*scale, 4*scale, COL.darkRose);
-      drawPixelRect(cx + 6*scale, cy + 6*scale, 1*scale, 4*scale, COL.darkRose);
+    case 'dress': {
+      // Single-piece A-line dress, U-neckline, widens to hem
+      const drkGreen = '#2d5a30';
+      // U-neckline: two straps, open centre
+      drawPixelRect(cx - 0*scale, cy,           3*scale, 4*scale, drkGreen);
+      drawPixelRect(cx + 4*scale, cy,           3*scale, 4*scale, drkGreen);
+      // Bodice — joins straps into one solid piece
+      drawPixelRect(cx + 1*scale, cy + 2*scale, 5*scale, 3*scale, drkGreen);
+      // Skirt — widens with each row, no break from bodice
+      drawPixelRect(cx + 0.7*scale, cy + 5*scale, 6*scale, 2*scale, drkGreen);
+      drawPixelRect(cx - 0.1*scale, cy + 7*scale, 7*scale, 2*scale, drkGreen);
+      drawPixelRect(cx - 0.5*scale, cy + 9*scale, 8*scale, 2*scale, drkGreen);
       break;
-    case 'shoe':
-      drawPixelRect(cx + 1*scale, cy + 3*scale, 7*scale, 3*scale, '#3a2d24');
-      drawPixelRect(cx + 5*scale, cy + 2*scale, 2*scale, 1*scale, '#3a2d24');
-      drawPixelRect(cx + 1*scale, cy + 2*scale, 6*scale, 1*scale, '#5a463a');
-      drawPixelRect(cx, cy + 5*scale, 8*scale, 1*scale, '#1f1f1f');
-      drawPixelRect(cx + 2*scale, cy + 4*scale, 2*scale, 1*scale, '#7a6557');
+    }
+    case 'pants':
+      drawPixelRect(cx + 1*scale, cy, 6*scale, 3*scale, '#8ab9eb');
+      drawPixelRect(cx + 1*scale, cy + 1*scale, 6*scale, 1*scale, '#8ab9eb');
+      drawPixelRect(cx + 1*scale, cy + 3*scale, 2.5*scale, 7*scale, '#8ab9eb');
+      drawPixelRect(cx + 4.25*scale, cy + 3*scale, 2.5*scale, 7*scale, '#8ab9eb');
+      drawPixelRect(cx + 3.5*scale, cy + 0*scale, 1*scale, 2*scale, '#6a9edb');
       break;
     case 'scarf':
-      drawPixelRect(cx, cy + 1*scale, 8*scale, 2*scale, COL.rose);
-      drawPixelRect(cx + 1*scale, cy + 3*scale, 2*scale, 3*scale, COL.rose);
-      drawPixelRect(cx + 5*scale, cy + 3*scale, 2*scale, 3*scale, COL.rose);
-      drawPixelRect(cx, cy + 2*scale, 8*scale, 1*scale, COL.darkRose);
-      drawPixelRect(cx + 1*scale, cy + 4*scale, 1*scale, 2*scale, COL.darkRose);
-      drawPixelRect(cx + 6*scale, cy + 4*scale, 1*scale, 2*scale, COL.darkRose);
+      ctx.strokeStyle = COL.rose;
+      ctx.lineWidth = 3*scale;
+      ctx.beginPath();
+      ctx.arc(cx + 4*scale, cy + 1*scale, 3*scale, 0, Math.PI * 2);
+      ctx.stroke();
+      drawPixelRect(cx - 0.5*scale, cy + 2*scale, 3*scale, 4*scale, COL.rose);
+      drawPixelRect(cx - 0.5*scale, cy + 6*scale, 0.5*scale, 1*scale, COL.rose);
+      drawPixelRect(cx + 0.5*scale, cy + 6*scale, 0.5*scale, 1*scale, COL.rose);
+      drawPixelRect(cx + 1.5*scale, cy + 6*scale, 0.5*scale, 1*scale, COL.rose);
+
+      drawPixelRect(cx + 5.5*scale, cy + 2*scale, 3*scale, 5*scale, COL.rose);
+      drawPixelRect(cx + 6*scale, cy + 7*scale, 0.5*scale, 1*scale, COL.rose);
+      drawPixelRect(cx + 7*scale, cy + 7*scale, 0.5*scale, 1*scale, COL.rose);
+      drawPixelRect(cx + 8*scale, cy + 7*scale, 0.5*scale, 1*scale, COL.rose);
       break;
     case 'tshirt':
-      drawPixelRect(cx + 2*scale, cy, 4*scale, 2*scale, COL.darkGreen);
-      drawPixelRect(cx + 1*scale, cy + 2*scale, 6*scale, 6*scale, COL.sage);
-      drawPixelRect(cx, cy + 2*scale, 2*scale, 3*scale, COL.darkGreen);
-      drawPixelRect(cx + 6*scale, cy + 2*scale, 2*scale, 3*scale, COL.darkGreen);
-      drawPixelRect(cx + 3*scale, cy + 2*scale, 2*scale, 1*scale, '#6d8d65');
-      drawPixelRect(cx + 4*scale, cy + 3*scale, 1*scale, 5*scale, '#6d8d65');
+      drawPixelRect(cx + 2*scale, cy, 4*scale, 1*scale, COL.offWhite);
+      drawPixelRect(cx + 1*scale, cy + 1*scale, 6*scale, 7*scale, COL.offWhite);
+      // Arms
+      drawPixelRect(cx - 0.5*scale, cy + 1*scale, 2*scale, 3*scale, COL.offWhite);
+      drawPixelRect(cx + 6*scale, cy + 1*scale, 2*scale, 3*scale, COL.offWhite);
       break;
-    case 'towel':
-      drawPixelRect(cx, cy, 7*scale, 9*scale, COL.offWhite);
-      drawPixelRect(cx, cy, 7*scale, 1*scale, COL.rose);
-      drawPixelRect(cx, cy + 8*scale, 7*scale, 1*scale, COL.rose);
-      drawPixelRect(cx + 2*scale, cy + 1*scale, 1*scale, 7*scale, '#e5ded6');
-      drawPixelRect(cx + 4*scale, cy + 1*scale, 1*scale, 7*scale, '#e5ded6');
+    case 'hoodie':
+      drawPixelRect(cx + 1.5*scale, cy + 2*scale, 5*scale, 7*scale, COL.sage);
+      drawPixelRect(cx + 2*scale, cy + 3*scale, 4*scale, 1*scale, COL.darkGreen);
+      drawPixelRect(cx + 2*scale, cy + 6*scale, 4*scale, 1*scale, COL.darkGreen);
+
+      // Arms
+      drawPixelRect(cx, cy + 2*scale, 2*scale, 3*scale, COL.sage);
+      drawPixelRect(cx-1*scale, cy + 2.5*scale, 2*scale, 7*scale, COL.sage);
+      drawPixelRect(cx + 6*scale, cy + 2*scale, 2*scale, 3*scale, COL.sage);
+      drawPixelRect(cx + 7*scale, cy + 2.5*scale, 2*scale, 7*scale, COL.sage);
+
+      // Head
+      drawPixelRect(cx + 2*scale, cy +0*scale, 4*scale, 2*scale, COL.darkGreen);
+      drawPixelRect(cx + 3*scale, cy + 1*scale, 2*scale, 1*scale, '#4f6f47');
       break;
     case 'hat':
-      drawPixelRect(cx + 2*scale, cy, 4*scale, 3*scale, COL.darkGreen);
-      drawPixelRect(cx + 1*scale, cy + 3*scale, 6*scale, 2*scale, COL.sage);
-      drawPixelRect(cx, cy + 4*scale, 8*scale, 1*scale, '#2f5f54');
-      drawPixelRect(cx + 3*scale, cy + 1*scale, 2*scale, 1*scale, '#4d7d72');
+      drawPixelRect(cx + 2*scale, cy, 5*scale, 4*scale, COL.black);
+      drawPixelRect(cx + 1*scale, cy + 4*scale, 7*scale, 1*scale, COL.black);
       break;
     case 'weddingDress':
-      drawPixelRect(cx+3*scale, cy, 4*scale, 4*scale, COL.white);
-      drawPixelRect(cx+1*scale, cy+4*scale, 8*scale, 5*scale, COL.white);
-      drawPixelRect(cx, cy+6*scale, 10*scale, 5*scale, COL.offWhite);
-      drawPixelRect(cx+4*scale, cy+2*scale, 2*scale, 1*scale, COL.gold);
+      drawPixelRect(cx + 3*scale, cy-1, 1*scale, 2.5*scale, COL.white);
+      drawPixelRect(cx + 6*scale, cy-1, 1*scale, 2.5*scale, COL.white);
+      drawPixelRect(cx+3*scale, cy+2, 4*scale, 3*scale, COL.white);
+      drawPixelRect(cx+1.5*scale, cy+4*scale, 7.5*scale, 2*scale, COL.white);
+      drawPixelRect(cx+0.5*scale, cy+6*scale, 9.5*scale, 2*scale, COL.offWhite);
+      drawPixelRect(cx-0.3*scale, cy+8*scale, 11.5*scale, 2*scale, COL.offWhite);
       // sparkle
       if (Math.random() > 0.5) {
         ctx.fillStyle = COL.gold;
@@ -618,15 +556,18 @@ function drawItem(x, y, type, scale) {
       ctx.beginPath();
       ctx.arc(cx + 5*scale, cy + 3*scale, 2.5*scale, 0, Math.PI*2);
       ctx.stroke();
-      // shine
-      ctx.fillStyle = COL.gold;
-      ctx.fillRect(cx + 1*scale, cy + 1*scale, scale, scale);
       break;
     case 'iron':
-      drawPixelRect(cx+1*scale, cy, 2*scale, 3*scale, '#555');
-      drawPixelRect(cx, cy+3*scale, 8*scale, 4*scale, COL.ironGray);
-      drawPixelRect(cx+1*scale, cy+7*scale, 6*scale, 1*scale, '#999');
-      drawPixelRect(cx+2*scale, cy+1*scale, 1*scale, 1*scale, COL.red);
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 1.1 * scale;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(cx + 3.5*scale, cy + 4*scale, 2*scale, Math.PI, 0);
+      ctx.stroke();
+      drawPixelRect(cx, cy+4*scale, 7*scale, 1*scale, COL.ironGray);
+      drawPixelRect(cx, cy+5*scale, 8*scale, 1*scale, COL.ironGray);
+      drawPixelRect(cx, cy+6*scale, 9*scale, 1*scale, COL.ironGray);
+      drawPixelRect(cx+1*scale, cy+7*scale, 9*scale, 1*scale, '#999');
       break;
   }
   ctx.restore();
@@ -645,8 +586,8 @@ function spawnItem(type, fromX) {
     y: 90,
     vx: (Math.random() - 0.5) * 40,
     vy: 30 + Math.random() * 20,
-    w: def.w * 2,
-    h: def.h * 2,
+    w: def.w * 3,
+    h: def.h * 3,
     points: def.points,
     special: def.special,
     rotation: 0,
@@ -685,9 +626,9 @@ let popupTimer = 0;
 
 const popupMessages = {
   firstMiss: 'Hallå, plocka upp det!',
-  combo5: 'Bra jobbat, Gideon!',
-  ironStun: 'Aj! Vem lämnade strykjärnet?!',
-  weddingDress: 'Rör inte brudklänningen!',
+  combo5: 'Du är bra på att städa!',
+  ironStun: 'Akta strykjärnet!',
+  weddingDress: 'Du räddade brudklänningen!',
   highMess: 'Det börjar bli stökigt...',
   combo10: 'Du är en tvättmaskin!',
 };
@@ -723,67 +664,142 @@ function drawBackground(showWallInstructions) {
   // Wall
   drawPixelRect(0, 0, W, H, COL.wall);
 
-  // Floor — wood planks
-  drawPixelRect(0, H - 80, W, 80, COL.floor);
-  // Plank lines
-  for (let py = H - 80; py < H; py += 16) {
+  // Floor — wood planks (rises almost to window level)
+  const floorY = 115;
+  drawPixelRect(0, floorY, W, H - floorY, COL.floor);
+  for (let py = floorY; py < H; py += 16) {
     drawPixelRect(0, py, W, 1, COL.floorDark);
   }
-  // Staggered vertical plank gaps
-  for (let py = H - 80; py < H; py += 16) {
-    const offset = ((py - (H - 80)) / 16) % 2 === 0 ? 0 : 40;
+  for (let py = floorY; py < H; py += 16) {
+    const offset = ((py - floorY) / 16) % 2 === 0 ? 0 : 40;
     for (let px = offset; px < W; px += 80) {
       drawPixelRect(px, py, 1, 16, COL.floorDark);
     }
   }
   // Baseboard
-  drawPixelRect(0, H - 80, W, 3, COL.floorDark);
+  drawPixelRect(0, floorY, W, 3, COL.floorDark);
 
-  // Window
-  drawPixelRect(280, 30, 80, 60, '#a8c8e8');
-  drawPixelRect(280, 30, 80, 3, COL.sage);
-  drawPixelRect(280, 87, 80, 3, COL.sage);
-  drawPixelRect(280, 30, 3, 60, COL.sage);
-  drawPixelRect(357, 30, 3, 60, COL.sage);
-  drawPixelRect(318, 30, 3, 60, COL.sage);
-  drawPixelRect(280, 58, 80, 3, COL.sage);
+  // Window (centre of wall)
+  drawPixelRect(170, 22, 64, 58, '#a8c8e8');
+  drawPixelRect(170, 22, 64, 3, COL.sage);
+  drawPixelRect(170, 77, 64, 3, COL.sage);
+  drawPixelRect(170, 22, 3, 58, COL.sage);
+  drawPixelRect(231, 22, 3, 58, COL.sage);
+  drawPixelRect(201, 22, 3, 58, COL.sage);
+  drawPixelRect(170, 50, 64, 3, COL.sage);
 
   // Curtains
-  drawPixelRect(272, 25, 10, 70, COL.rose);
-  drawPixelRect(358, 25, 10, 70, COL.rose);
+  drawPixelRect(156, 14, 16, 72, COL.rose);
+  drawPixelRect(230, 14, 16, 72, COL.rose);
 
-  // Couch
-  drawPixelRect(20, H - 130, 100, 50, COL.sage);
-  drawPixelRect(15, H - 140, 15, 60, COL.darkGreen);
-  drawPixelRect(110, H - 140, 15, 60, COL.darkGreen);
-  drawPixelRect(20, H - 135, 100, 8, COL.darkGreen);
+  // Couch (far left, base on floor)
+  { const cx = 10, cy = floorY;
+    drawPixelRect(cx, cy - 42, 100, 42, COL.sage);
+    drawPixelRect(cx - 5, cy - 52, 13, 52, COL.darkGreen);
+    drawPixelRect(cx + 100, cy - 52, 13, 52, COL.darkGreen);
+    drawPixelRect(cx, cy - 47, 100, 7, COL.darkGreen);
+  }
 
-  // Lamp
-  drawPixelRect(160, 40, 4, 80, COL.ironGray);
-  drawPixelRect(148, 30, 28, 15, COL.rose);
-  drawPixelRect(155, 23, 14, 10, COL.darkRose);
+  // Floor lamp (base on floor, shade near top of wall)
+  { const lx = 128, ly = floorY;
+    drawPixelRect(lx + 2, 14, 4, ly - 14, COL.ironGray);
+    drawPixelRect(lx - 6, ly - 3, 16, 4, '#888');
+    drawPixelRect(lx - 14, 6, 32, 18, COL.rose);
+    drawPixelRect(lx - 7, 0, 18, 8, COL.darkRose);
+  }
 
-  // Rug
-  ctx.globalAlpha = 0.3;
-  drawPixelRect(100, H - 60, 200, 40, COL.rose);
-  ctx.globalAlpha = 1;
+  // Old TV with antennas (centre-right, base on floor)
+  { const tx = 255, ty = floorY;
+    // Stand
+    drawPixelRect(tx + 8, ty - 7, 54, 7, '#6b5a3a');
+    drawPixelRect(tx + 14, ty, 6, 4, '#4a3d28');
+    drawPixelRect(tx + 50, ty, 6, 4, '#4a3d28');
+    // Cabinet
+    drawPixelRect(tx, ty - 67, 74, 60, '#3a3028');
+    // Screen
+    drawPixelRect(tx + 6, ty - 61, 44, 38, '#0a0e14');
+    drawPixelRect(tx + 8, ty - 59, 40, 34, '#1a2a3a');
+    for (let sl = 0; sl < 34; sl += 4) {
+      drawPixelRect(tx + 8, ty - 59 + sl, 40, 1, '#0d1a28');
+    }
+    // Dial
+    drawPixelRect(tx + 58, ty - 52, 12, 12, '#2a2018');
+    drawPixelRect(tx + 61, ty - 49, 5, 5, '#555');
+    drawPixelRect(tx + 63, ty - 47, 2, 2, '#999');
+    // Speaker grille
+    for (let sg = 0; sg < 5; sg++) {
+      drawPixelRect(tx + 6 + sg * 4, ty - 20, 2, 12, '#222');
+    }
+    // Antennas
+    ctx.save();
+    ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(tx + 22, ty - 67); ctx.lineTo(tx + 8, ty - 108); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx + 52, ty - 67); ctx.lineTo(tx + 72, ty - 112); ctx.stroke();
+    ctx.fillStyle = '#aaa';
+    ctx.beginPath(); ctx.arc(tx + 8, ty - 108, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(tx + 72, ty - 112, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Washing machine (far right, at Gideon's level near bottom)
+  { const mx = 327, my = H - 86;
+    drawPixelRect(mx, my - 80, 70, 80, '#d8d8d8');
+    drawPixelRect(mx, my - 80, 70, 8, '#c0c0c0');
+    ctx.save();
+    ctx.strokeStyle = '#888'; ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(mx + 35, my - 44, 25, 0, Math.PI * 2);
+    ctx.fillStyle = '#1a2a3a'; ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#4a6a8a'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(mx + 35, my - 44, 18, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#2a3a4a';
+    for (let a = 0; a < 6; a++) {
+      const ang = a * Math.PI / 3;
+      ctx.beginPath();
+      ctx.arc(mx + 35 + Math.cos(ang) * 11, my - 44 + Math.sin(ang) * 11, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    drawPixelRect(mx + 4, my - 8, 62, 4, '#b0b0b0');
+    ctx.save();
+    ctx.fillStyle = '#888';
+    ctx.beginPath(); ctx.arc(mx + 13, my - 76, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#aaa';
+    ctx.beginPath(); ctx.arc(mx + 13, my - 76, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#44ff88';
+    ctx.fillRect(mx + 27, my - 77, 3, 3);
+    ctx.restore();
+  }
 
   if (showWallInstructions) {
-    // Instructions on wall
-    ctx.globalAlpha = 0.75;
-    ctx.font = '11px monospace';
-    ctx.textAlign = 'left';
+    // In-game instructions: regular clothes on floor, special items on wall
+    ctx.globalAlpha = 1;
     ctx.fillStyle = COL.darkGreen;
-    const instructionRows = [
-      { type: 'tshirt', text: 'Vanliga klader (+10)' },
-      { type: 'weddingDress', text: 'Brudklanning: +50 poang' },
-      { type: 'rings', text: 'Ringar: x2 poang i 5 sek' },
-      { type: 'iron', text: 'Strykjarn: stun pa Gideon' },
-    ];
-    for (let i = 0; i < instructionRows.length; i++) {
-      const y = 140 + i * 16;
-      drawItem(18, y - 8, instructionRows[i].type, 0.9);
-      ctx.fillText(instructionRows[i].text, 34, y + 2);
+
+    // Floor strip with all regular clothes
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 11px monospace';
+    const floorLabelY = 128;
+    ctx.fillText('Vanliga kläder (+10)', W / 2, floorLabelY);
+    const floorIconY = 146;
+    const floorStepX = 42;
+    const floorStartX = W / 2 - ((regularTypes.length - 1) * floorStepX) / 2;
+    for (let i = 0; i < regularTypes.length; i++) {
+      const type = regularTypes[i];
+      const iconTop = floorIconY - (ITEM_TYPES[type].legendIconH * 2) / 2;
+      drawItem(floorStartX + i * floorStepX, iconTop, type, 2);
+    }
+
+    // Special effects stay listed on the wall
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'left';
+    const specialIconX = 82;
+    const specialTextX = 120;
+    for (let i = 0; i < specialTypes.length; i++) {
+      const type = specialTypes[i];
+      const y = 176 + i * 22;
+      drawItem(specialIconX, y - 8, type, 2);
+      ctx.fillText(ITEM_TYPES[type].wallText, specialTextX, y + 2);
     }
     ctx.globalAlpha = 1;
   }
@@ -793,20 +809,16 @@ function drawBackground(showWallInstructions) {
 // DRAW SARA
 // ============================================================
 function drawSara() {
-  const sx = saraX - SARA_W / 2;
-  const sy = 15;
   const isThrowing = saraThrowAnim > 0;
   const saraPhoto = isThrowing ? photoSprites.saraUp : photoSprites.saraDown;
   if (saraPhoto) {
     const boxW = isThrowing ? SARA_PHOTO_W : SARA_PHOTO_DOWN_W;
     const boxH = isThrowing ? SARA_PHOTO_H : SARA_PHOTO_DOWN_H;
     const px = saraX - boxW / 2;
-    const py = isThrowing ? 6 : 12;
+    const photoBottomY = 16;
+    const py = isThrowing ? photoBottomY : (photoBottomY + Math.abs(SARA_PHOTO_H - SARA_PHOTO_DOWN_H)+1);
     drawPhotoFitted(saraPhoto, px, py, boxW, boxH, SARA_PHOTO_BRIGHTNESS);
-    return;
   }
-  const sprite = isThrowing ? saraThrowSprite : saraSprite;
-  drawPixelChar(sx, sy, sprite, saraPalette, SARA_SCALE);
 }
 
 function drawPhotoFitted(img, x, y, boxW, boxH, brightness) {
@@ -843,10 +855,11 @@ function drawPhotoFittedBottom(img, x, y, boxW, boxH) {
 }
 
 // ============================================================
-// DRAW GIDEON
+// DRAW GIDEON (split into body and basket for layering)
 // ============================================================
-function drawGideon() {
-  const bx = gideonX - BASKET_W / 2 + BASKET_X_OFFSET;
+let gideonBasketY = 0; // Store basket Y for later drawing
+
+function drawGideonBody() {
   let by = GIDEON_Y + GIDEON_BASKET_OFFSET_Y;
 
   // Stun effect
@@ -854,20 +867,15 @@ function drawGideon() {
     ctx.globalAlpha = 0.5 + 0.5 * Math.sin(stunTimer * 20);
   }
 
-  // Body (drawn first so legs appear behind basket)
-  const gx = gideonX - GIDEON_W / 2;
+  // Body (drawn first, photo only)
   if (photoSprites.gideon) {
     const px = gideonX - GIDEON_PHOTO_W / 2;
     const py = GIDEON_Y + GIDEON_H - GIDEON_PHOTO_H;
     drawPhotoFittedBottom(photoSprites.gideon, px, py, GIDEON_PHOTO_W, GIDEON_PHOTO_H);
     by = py + Math.round(GIDEON_PHOTO_H * GIDEON_BASKET_REL_Y);
-  } else {
-    drawPixelChar(gx, GIDEON_Y, gideonSprite, gideonPalette, GIDEON_SCALE);
-    by = GIDEON_Y + Math.round(GIDEON_H * GIDEON_BASKET_REL_Y);
   }
 
-  // Basket (drawn on top, covering legs)
-  drawPixelChar(bx, by, basketSprite, gideonPalette, BASKET_SCALE);
+  gideonBasketY = by;
 
   if (stunTimer > 0) {
     // Stun stars
@@ -881,6 +889,12 @@ function drawGideon() {
     }
     ctx.globalAlpha = 1;
   }
+}
+
+function drawGideonBasket() {
+  const bx = gideonX - BASKET_W / 2 + BASKET_X_OFFSET;
+  // Basket (drawn on top, covering items)
+  drawPixelChar(bx, gideonBasketY, basketSprite, basketPalette, BASKET_SCALE);
 }
 
 // ============================================================
@@ -901,7 +915,7 @@ function drawHUD() {
 
   // Score
   ctx.fillStyle = COL.darkGreen;
-  ctx.fillText('Poäng: ' + score, 10, 20);
+  ctx.fillText('Poäng: ' + score, 10, 19);
 
   // High score
   ctx.textAlign = 'right';
@@ -998,6 +1012,30 @@ function checkMuteClick(px, py) {
   return false;
 }
 
+const clearScoreBtn = { x: 5, y: H - 30, w: 25, h: 20 };
+
+function drawClearScoreBtn() {
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = '#888';
+  ctx.fillRect(clearScoreBtn.x, clearScoreBtn.y, clearScoreBtn.w, clearScoreBtn.h);
+  ctx.fillStyle = COL.offWhite;
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('RHS', clearScoreBtn.x + clearScoreBtn.w / 2, clearScoreBtn.y + 13);
+  ctx.restore();
+}
+
+function checkClearScoreClick(px, py) {
+  if (px >= clearScoreBtn.x && px <= clearScoreBtn.x + clearScoreBtn.w &&
+      py >= clearScoreBtn.y && py <= clearScoreBtn.y + clearScoreBtn.h) {
+    highScore = 0;
+    saveHighScore();
+    return true;
+  }
+  return false;
+}
+
 
 
 // ============================================================
@@ -1013,20 +1051,18 @@ function drawTitle() {
   // Title
   ctx.textAlign = 'center';
   ctx.fillStyle = COL.darkGreen;
-  ctx.font = 'bold 26px monospace';
-  ctx.fillText('Gideons', W/2, 128);
-  ctx.font = 'bold 22px monospace';
-  ctx.fillText('Tvättnightmare', W/2, 158);
+  ctx.font = 'bold 28px monospace';
+  ctx.fillText('Tvättspelet', W/2, 115);
 
   // Subtitle
   ctx.fillStyle = COL.rose;
   ctx.font = '14px monospace';
-  ctx.fillText('En tvättkatastrof på bröllopsdagen!', W/2, 188);
+  ctx.fillText('En helt vanlig dag hos Sara & Gideon.', W/2, 160);
 
   // Draw Sara and Gideon preview
   const titleSaraCenterX = W / 2 - 60;
   const titleGideonCenterX = W / 2 + 60;
-  const titleCharactersCenterY = 254;
+  const titleCharactersCenterY = 225;
   if (photoSprites.saraDown) {
     drawPhotoFitted(
       photoSprites.saraDown,
@@ -1036,8 +1072,6 @@ function drawTitle() {
       SARA_PHOTO_H,
       SARA_PHOTO_BRIGHTNESS
     );
-  } else {
-    drawPixelChar(titleSaraCenterX - SARA_W / 2, titleCharactersCenterY - SARA_H / 2, saraSprite, saraPalette, SARA_SCALE);
   }
 
   const titleGideonTopY = titleCharactersCenterY - GIDEON_PHOTO_H / 2;
@@ -1051,45 +1085,59 @@ function drawTitle() {
       GIDEON_PHOTO_H
     );
     titleBasketY = titleGideonTopY + Math.round(GIDEON_PHOTO_H * GIDEON_BASKET_REL_Y);
-  } else {
-    drawPixelChar(titleGideonCenterX - GIDEON_W / 2, titleCharactersCenterY - GIDEON_H / 2, gideonSprite, gideonPalette, GIDEON_SCALE);
-    titleBasketY = titleCharactersCenterY - GIDEON_H / 2 + Math.round(GIDEON_H * GIDEON_BASKET_REL_Y);
   }
-  drawPixelChar(titleGideonCenterX - BASKET_W / 2 + BASKET_X_OFFSET, titleBasketY, basketSprite, gideonPalette, BASKET_SCALE);
+
+  drawPixelChar(titleGideonCenterX - BASKET_W / 2 + BASKET_X_OFFSET, titleBasketY, basketSprite, basketPalette, BASKET_SCALE);
 
   // Hearts between them
   ctx.fillStyle = COL.rose;
   ctx.font = '20px serif';
-  ctx.fillText('♥', W/2, 264);
+  ctx.fillText('♥', W/2, 237);
 
   drawTitleLegend();
 
-  // Play prompt
-  ctx.fillStyle = COL.darkGreen;
-  ctx.font = '16px monospace';
+  // Play prompt (clear call-to-action)
   const blink = Math.sin(performance.now() / 400) > 0;
-  if (blink) ctx.fillText('Tryck för att spela', W/2, 440);
+  if (blink) {
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.beginPath();
+    roundRect(ctx, W / 2 - 96, 465, 192, 28, 7);
+    ctx.fill();
+    ctx.strokeStyle = COL.darkGreen;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    roundRect(ctx, W / 2 - 96, 465, 192, 28, 7);
+    ctx.stroke();
+
+    ctx.fillStyle = COL.darkGreen;
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText('Tryck för att spela', W/2, 483);
+  }
 
   // High score
   if (highScore > 0) {
     ctx.fillStyle = COL.sage;
     ctx.font = '12px monospace';
-    ctx.fillText('Bästa poäng: ' + highScore, W/2, 498);
+    ctx.fillText('Bästa poäng: ' + highScore, W/2, 516);
   }
 
-  // Instructions
-  ctx.fillStyle = '#888';
+  // Quick instruction line
+  ctx.fillStyle = COL.darkGreen;
+  ctx.font = 'bold 12px monospace';
+  ctx.fillText('Flytta musen/fingret och fånga kläder', W/2, 536);
   ctx.font = '11px monospace';
-  ctx.fillText('Flytta musen/fingret för att fånga kläder!', W/2, 548);
+  ctx.fillStyle = '#555';
+  ctx.fillText('Undvik att tappa för många plagg', W/2, 552);
 
+  drawClearScoreBtn();
   drawMuteBtn();
 }
 
 function drawTitleLegend() {
-  const boxX = 44;
-  const boxY = 300;
-  const boxW = 312;
-  const boxH = 104;
+  const boxX = 22;
+  const boxY = 270;
+  const boxW = 356;
+  const boxH = 180;
 
   ctx.save();
   ctx.fillStyle = 'rgba(233,223,210,0.93)';
@@ -1102,43 +1150,85 @@ function drawTitleLegend() {
   roundRect(ctx, boxX, boxY, boxW, boxH, 8);
   ctx.stroke();
 
-  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = COL.darkGreen;
-  ctx.font = '11px monospace';
 
-  // Row 1: show all regular clothes (all are +10)
-  const regularLabelY = boxY + 18;
-  ctx.fillText('Vanliga klader (+10):', boxX + 10, regularLabelY);
-  const legendRegularTypes = ['sock', 'dress', 'shoe', 'scarf', 'tshirt', 'towel', 'hat'];
-  const startX = boxX + 154;
-  const stepX = 22;
-  const regularIconUnits = { sock: 8, dress: 10, shoe: 6, scarf: 6, tshirt: 8, towel: 9, hat: 5 };
-  for (let i = 0; i < legendRegularTypes.length; i++) {
-    const type = legendRegularTypes[i];
-    const iconScale = type === 'sock' ? 1.55 : 1.25;
-    const iconTop = regularLabelY - (regularIconUnits[type] * iconScale) / 2;
-    drawItem(startX + i * stepX, iconTop, type, iconScale);
+  // Header
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 14px monospace';
+  ctx.fillText('Fånga Saras kläder:', boxX + boxW / 2, boxY + 17);
+  ctx.strokeStyle = '#cdbfae';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(boxX + 10, boxY + 24);
+  ctx.lineTo(boxX + boxW - 10, boxY + 26);
+  ctx.stroke();
+
+  // Regular clothes row
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 11px monospace';
+  const centerX = boxX + boxW / 2;
+  const regularLabelY = boxY + 38;
+  ctx.fillText('Vanliga kläder = +10 poäng', centerX, regularLabelY);
+
+  const row1Y = boxY + 58;
+  const row2Y = boxY + 80;
+  const stepX = 42;
+  const row1Count = Math.min(4, regularTypes.length);
+  const row2Count = Math.max(0, regularTypes.length - row1Count);
+  const row1StartX = centerX - ((row1Count - 1) * stepX) / 2;
+  const row2StartX = centerX - ((row2Count - 1) * stepX) / 2;
+  for (let i = 0; i < regularTypes.length; i++) {
+    const type = regularTypes[i];
+    const rowY = i < 4 ? row1Y : row2Y;
+    const col = i < 4 ? i : i - 4;
+    const rowStartX = i < 4 ? row1StartX : row2StartX;
+    const iconScale = 2;
+    const iconTop = rowY - (ITEM_TYPES[type].legendIconH * iconScale) / 2;
+    drawItem(rowStartX + col * stepX, iconTop, type, iconScale);
   }
 
-  // Specials
-  const specials = [
-    { type: 'weddingDress', text: 'Brudklanning: +50 poang' },
-    { type: 'rings', text: 'Ringar: x2 poang i 5 sek' },
-    { type: 'iron', text: 'Strykjarn: stun pa Gideon' },
-  ];
-  for (let i = 0; i < specials.length; i++) {
-    const rowY = boxY + 34 + i * 20;
-    const textX = boxX + 10;
-    const textY = rowY + 7;
-    ctx.fillText(specials[i].text, textX, textY);
-    const textW = ctx.measureText(specials[i].text).width;
-    const specialUnits = { weddingDress: 11, rings: 6, iron: 8 };
-    const specialScale = 1.35;
-    const iconTop = textY - (specialUnits[specials[i].type] * specialScale) / 2;
-    drawItem(textX + textW + 8, iconTop, specials[i].type, specialScale);
+  // Special effects list
+  ctx.font = '11px monospace';
+  for (let i = 0; i < specialTypes.length; i++) {
+    const type = specialTypes[i];
+    const rowY = boxY + 108 + i * 18;
+    const text = ITEM_TYPES[type].legendText;
+    const textW = ctx.measureText(text).width;
+    const iconTextGap = 26;
+    const lineStartX = centerX - (iconTextGap + textW) / 2;
+    const rowShiftX = type === 'weddingDress' ? -4 : 0;
+    const iconLift = type === 'weddingDress' ? 7 : 0;
+    const textLift = type === 'weddingDress' ? 2 : 0;
+    drawItem(lineStartX + rowShiftX, rowY - 8 - iconLift, type, 2);
+    ctx.textAlign = 'left';
+    ctx.fillText(text, lineStartX + iconTextGap + rowShiftX, rowY + 2 - textLift);
+    ctx.textAlign = 'center';
   }
   ctx.restore();
+}
+
+// ============================================================
+// GAME OVER SCREEN BUTTONS
+// ============================================================
+const gameOverButtons = {
+  playAgain: { x: W/2 - 70, y: 292, w: 140, h: 35 },
+  mainMenu: { x: W/2 - 70, y: 338, w: 140, h: 35 },
+};
+
+function checkGameOverClick(px, py) {
+  if (px >= gameOverButtons.playAgain.x && px <= gameOverButtons.playAgain.x + gameOverButtons.playAgain.w &&
+      py >= gameOverButtons.playAgain.y && py <= gameOverButtons.playAgain.y + gameOverButtons.playAgain.h) {
+    resetGame();
+    return true;
+  }
+  if (px >= gameOverButtons.mainMenu.x && px <= gameOverButtons.mainMenu.x + gameOverButtons.mainMenu.w &&
+      py >= gameOverButtons.mainMenu.y && py <= gameOverButtons.mainMenu.y + gameOverButtons.mainMenu.h) {
+    state = STATE.TITLE;
+    stopMusic();
+    return true;
+  }
+  return false;
 }
 
 // ============================================================
@@ -1149,53 +1239,133 @@ function drawGameOver() {
   drawFloorMess();
 
   // Dark overlay
-  ctx.fillStyle = 'rgba(30,30,30,0.7)';
+  ctx.fillStyle = 'rgba(30,30,30,0.75)';
   ctx.fillRect(0, 0, W, H);
 
-  // Panel
+  // Panel (centered and symmetric with smaller margins)
+  const panelX = 10, panelY = 70, panelW = W - 20, panelH = 370;
   ctx.fillStyle = COL.offWhite;
   ctx.beginPath();
-  roundRect(ctx, 60, 150, W - 120, 280, 12);
+  roundRect(ctx, panelX, panelY, panelW, panelH, 12);
   ctx.fill();
   ctx.strokeStyle = COL.darkGreen;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 4;
   ctx.beginPath();
-  roundRect(ctx, 60, 150, W - 120, 280, 12);
+  roundRect(ctx, panelX, panelY, panelW, panelH, 12);
   ctx.stroke();
 
+  // Top accent bar
+  ctx.fillStyle = COL.darkGreen;
+  ctx.fillRect(panelX, panelY, panelW, 4);
+
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  
+  // Title
   ctx.fillStyle = COL.darkGreen;
-  ctx.font = 'bold 24px monospace';
-  ctx.fillText('Game Over!', W/2, 195);
+  ctx.font = 'bold 32px monospace';
+  ctx.fillText('Game Over!', W/2, panelY + 18);
 
+  // Subtitle
   ctx.font = '14px monospace';
-  ctx.fillStyle = COL.darkGreen;
-  ctx.fillText('Det blev för stökigt...', W/2, 225);
+  ctx.fillStyle = '#666';
+  ctx.fillText('Det blev för stökigt...', W/2, panelY + 58);
 
-  // Score
-  ctx.font = 'bold 20px monospace';
+  // Score section — gap is the whitespace between bottom of one text and top of next
+  const gap = 14;
+  const smallH = 14;  // approx rendered height of 12px monospace
+  const bigH = 34;    // approx rendered height of 28px bold monospace
+  const scoreStartY = panelY + 105;
+  const poangY = scoreStartY + smallH + gap;
+  const bastY = poangY + bigH + gap;
+  const bastH = newRecord ? 22 : smallH;
+
+  // Top divider — gap above "Ditt resultat"
+  ctx.strokeStyle = '#ddd';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(panelX + 20, scoreStartY - gap);
+  ctx.lineTo(panelX + panelW - 20, scoreStartY - gap);
+  ctx.stroke();
+
+  ctx.font = '12px monospace';
+  ctx.fillStyle = '#888';
+  ctx.fillText('Ditt resultat', W/2, scoreStartY);
+  
+  ctx.font = 'bold 28px monospace';
   ctx.fillStyle = COL.sage;
-  ctx.fillText('Poäng: ' + score, W/2, 270);
+  ctx.fillText(score + ' poäng', W/2, poangY);
 
   if (newRecord) {
     ctx.fillStyle = COL.gold;
     ctx.font = 'bold 16px monospace';
-    ctx.fillText('★ Nytt rekord! ★', W/2, 300);
+    ctx.fillText('⭐ Nytt rekord! ⭐', W/2, bastY);
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#888';
+    ctx.fillText('Tidigare: ' + prevHighScore, W/2, bastY + 22);
+  } else {
+    ctx.font = '12px monospace';
+    ctx.fillStyle = '#888';
+    ctx.fillText('Bäst: ' + highScore, W/2, bastY);
   }
 
-  ctx.fillStyle = COL.darkGreen;
-  ctx.font = '13px monospace';
-  ctx.fillText('Bästa: ' + highScore, W/2, 330);
+  // Bottom divider — gap below "Bäst"
+  ctx.strokeStyle = '#ddd';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(panelX + 20, bastY + bastH + gap);
+  ctx.lineTo(panelX + panelW - 20, bastY + bastH + gap);
+  ctx.stroke();
 
-  // Play again button
+  // Buttons — positioned dynamically below the bottom divider
+  const btnW = 140, btnH = 35;
+  const btnX = W/2 - btnW/2;
+  const btn1Y = bastY + bastH + gap + gap;
+  const btn2Y = btn1Y + btnH + gap;
+
+  // Play again button (with shadow)
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  roundRect(ctx, btnX + 2, btn1Y + 2, btnW, btnH, 6);
+  ctx.fill();
   ctx.fillStyle = COL.sage;
   ctx.beginPath();
-  roundRect(ctx, W/2 - 80, 360, 160, 40, 8);
+  roundRect(ctx, btnX, btn1Y, btnW, btnH, 6);
   ctx.fill();
+  ctx.strokeStyle = COL.darkGreen;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  roundRect(ctx, btnX, btn1Y, btnW, btnH, 6);
+  ctx.stroke();
   ctx.fillStyle = COL.offWhite;
   ctx.font = 'bold 16px monospace';
-  ctx.fillText('Spela igen', W/2, 386);
+  ctx.textBaseline = 'middle';
+  ctx.fillText('▶ Spela igen', W/2, btn1Y + btnH / 2 + 1);
 
+  // Main menu button (with shadow)
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  roundRect(ctx, btnX + 2, btn2Y + 2, btnW, btnH, 6);
+  ctx.fill();
+  ctx.fillStyle = COL.rose;
+  ctx.beginPath();
+  roundRect(ctx, btnX, btn2Y, btnW, btnH, 6);
+  ctx.fill();
+  ctx.strokeStyle = COL.darkGreen;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  roundRect(ctx, btnX, btn2Y, btnW, btnH, 6);
+  ctx.stroke();
+  ctx.fillStyle = COL.offWhite;
+  ctx.font = 'bold 16px monospace';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('⌂ Meny', W/2, btn2Y + btnH / 2 + 1);
+
+  // Update click targets dynamically
+  gameOverButtons.playAgain.x = btnX; gameOverButtons.playAgain.y = btn1Y; gameOverButtons.playAgain.w = btnW; gameOverButtons.playAgain.h = btnH;
+  gameOverButtons.mainMenu.x = btnX; gameOverButtons.mainMenu.y = btn2Y; gameOverButtons.mainMenu.w = btnW; gameOverButtons.mainMenu.h = btnH;
+
+  drawClearScoreBtn();
   drawMuteBtn();
 }
 
@@ -1212,7 +1382,7 @@ function resetGame() {
   combo = 0;
   maxCombo = 0;
   newRecord = false;
-  items = [];
+  prevHighScore = 0;
   floorItems = [];
   particles = [];
   popup = null;
@@ -1377,6 +1547,7 @@ function updateGame(dt) {
         stopMusic();
         sfxGameOver();
         if (score > highScore) {
+          prevHighScore = highScore;
           highScore = score;
           newRecord = true;
           saveHighScore();
@@ -1405,11 +1576,6 @@ function renderGame() {
   drawBackground();
   drawFloorMess();
 
-  // Draw items
-  for (const it of items) {
-    drawItem(it.x, it.y, it.type, 2);
-  }
-
   // Draw particles
   for (const p of particles) {
     ctx.globalAlpha = Math.max(0, p.life * 2.5);
@@ -1419,9 +1585,17 @@ function renderGame() {
   ctx.globalAlpha = 1;
 
   drawSara();
-  drawGideon();
+  drawGideonBody();
+
+  // Draw items (in front of Gideon body, behind basket)
+  for (const it of items) {
+    drawItem(it.x, it.y, it.type, 2);
+  }
+
+  drawGideonBasket();
   drawHUD();
   drawPopup();
+  drawClearScoreBtn();
   drawMuteBtn();
 }
 
@@ -1472,7 +1646,7 @@ function gameLoop(timestamp) {
     drawGameOver();
     if (clicked) {
       clicked = false;
-      resetGame();
+      checkGameOverClick(clickX, clickY);
     }
   }
 }
