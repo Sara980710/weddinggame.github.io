@@ -381,13 +381,13 @@ const photoSprites = {
 
 Promise.all([
   loadImageCandidates(['gideon.png', 'Gidde.jpeg']).then(img => {
-    photoSprites.gideon = preprocessCharacterImage(img, 900, 44);
+    photoSprites.gideon = preprocessCharacterImage(img, 4096, 44);
   }),
   loadImageCandidates(['sara_down.png', 'Sara_hands_down.jpg']).then(img => {
-    photoSprites.saraDown = preprocessCharacterImage(img, 900, 48);
+    photoSprites.saraDown = preprocessCharacterImage(img, 4096, 48);
   }),
   loadImageCandidates(['Sara_hands_up_crop_nobg.png', 'Sara_hands_up_crop.jpg', 'Sara_hands_up.jpg', 'sara_up.png']).then(img => {
-    photoSprites.saraUp = preprocessCharacterImage(img, 900, 48);
+    photoSprites.saraUp = preprocessCharacterImage(img, 4096, 48);
   }),
 ]).catch(() => {
   // Keep pixel-art fallback if photos fail to load.
@@ -724,8 +724,8 @@ function drawBackground(showWallInstructions) {
   { const lx = 128, ly = floorY;
     drawPixelRect(lx + 2, 14, 4, ly - 14, COL.ironGray);
     drawPixelRect(lx - 6, ly - 3, 16, 4, '#888');
-    drawPixelRect(lx - 14, 6, 32, 18, COL.rose);
-    drawPixelRect(lx - 7, 0, 18, 8, COL.darkRose);
+    drawPixelRect(lx - 14, 6, 32, 18, COL.yellow);
+    drawPixelRect(lx - 7, 0, 18, 8, COL.darkYellow);
   }
 
   // Old TV with antennas (centre-right, base on floor)
@@ -1338,10 +1338,12 @@ function drawGameOver() {
   ctx.stroke();
 
   // Buttons — positioned dynamically below the bottom divider
-  const btnW = 140, btnH = 35;
+  const btnW = 140, btnH = 31;
+  const btnGap = 9;
   const btnX = W/2 - btnW/2;
-  const btn1Y = bastY + bastH + gap + gap;
-  const btn2Y = btn1Y + btnH + gap;
+  const btn1Y = bastY + bastH + gap + 8;
+  const btn2Y = btn1Y + btnH + btnGap;
+  const btn3Y = btn2Y + btnH + btnGap;
 
   // Play again button (with shadow)
   ctx.fillStyle = 'rgba(0,0,0,0.15)';
