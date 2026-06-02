@@ -215,9 +215,20 @@ canvas.addEventListener('touchend', e => { e.preventDefault(); }, { passive: fal
 // ============================================================
 // SPRITE DRAWING HELPERS
 // ============================================================
+const PIXEL_OVERLAP = 0.35;
+
 function drawPixelRect(x, y, w, h, color) {
+  const left = Math.round(x);
+  const top = Math.round(y);
+  const right = Math.round(x + w);
+  const bottom = Math.round(y + h);
   ctx.fillStyle = color;
-  ctx.fillRect(Math.round(x), Math.round(y), w, h);
+  ctx.fillRect(
+    left - PIXEL_OVERLAP,
+    top - PIXEL_OVERLAP,
+    Math.max(1, right - left) + PIXEL_OVERLAP * 2,
+    Math.max(1, bottom - top) + PIXEL_OVERLAP * 2
+  );
 }
 
 function drawPixelChar(x, y, pixels, palette, scale) {
@@ -226,8 +237,17 @@ function drawPixelChar(x, y, pixels, palette, scale) {
     for (let col = 0; col < pixels[row].length; col++) {
       const c = pixels[row][col];
       if (c !== 0 && palette[c]) {
+        const left = Math.round(x + col * scale);
+        const top = Math.round(y + row * scale);
+        const right = Math.round(x + (col + 1) * scale);
+        const bottom = Math.round(y + (row + 1) * scale);
         ctx.fillStyle = palette[c];
-        ctx.fillRect(Math.round(x + col * scale), Math.round(y + row * scale), scale, scale);
+        ctx.fillRect(
+          left - PIXEL_OVERLAP,
+          top - PIXEL_OVERLAP,
+          Math.max(1, right - left) + PIXEL_OVERLAP * 2,
+          Math.max(1, bottom - top) + PIXEL_OVERLAP * 2
+        );
       }
     }
   }
@@ -1607,9 +1627,12 @@ function resize() {
   const pw = parent.clientWidth || window.innerWidth;
   const ph = parent.clientHeight || window.innerHeight;
   const scale = Math.min(pw / W, ph / H);
-  renderDpr = Math.min(window.devicePixelRatio || 1, 3);
+  const deviceScale = window.devicePixelRatio || 1;
+  const blendedScale = scale > 1 ? 1 + (scale - 1) * 0.5 : scale;
+  renderDpr = Math.min(blendedScale * deviceScale, 4);
 
-  // Render at device pixel ratio to keep photos sharp when the canvas is scaled.
+  // Use a midpoint between plain device-pixel rendering and full CSS-scale matching
+  // so large screens look sharper without pushing the canvas to the maximum size.
   canvas.width = Math.round(W * renderDpr);
   canvas.height = Math.round(H * renderDpr);
   ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
