@@ -25,6 +25,60 @@ canvas {
 <body>
 <canvas id="gc"></canvas>
 <script src="config.js"></script>
+
+<!-- Remote high score bridge (Firebase or JSONbin — configured in config.js) -->
+<script type="module">
+const BASE = 'https://api.jsonbin.io/v3/b';
+
+// --- JSONbin ---
+if (CONFIG.jsonbin && CONFIG.jsonbin.enabled) {
+  const { binId, apiKey } = CONFIG.jsonbin;
+  const headers = { 'X-Master-Key': apiKey };
+
+  // Load
+  try {
+    const res  = await fetch(`${BASE}/${binId}/latest`, { headers });
+    const json = await res.json();
+    const remote = json.record?.best || 0;
+    if (remote > (window._highScore || 0)) window._highScore = remote;
+  } catch(e) { console.warn('JSONbin load failed', e); }
+
+  // Save helper
+  window._fbSaveHighScore = async (score) => {
+    try {
+      await fetch(`${BASE}/${binId}`, {
+        method:  'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ best: score }),
+      });
+    } catch(e) { console.warn('JSONbin save failed', e); }
+  };
+}
+
+// --- Firebase ---
+if (CONFIG.firebase) {
+  const { initializeApp }         = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+  const { getFirestore, doc, getDoc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+
+  const app = initializeApp(CONFIG.firebase);
+  const db  = getFirestore(app);
+  const REF = () => doc(db, 'scores', 'global');
+
+  try {
+    const snap = await getDoc(REF());
+    if (snap.exists()) {
+      const remote = snap.data().best || 0;
+      if (remote > (window._highScore || 0)) window._highScore = remote;
+    }
+  } catch(e) { console.warn('Firebase load failed', e); }
+
+  window._fbSaveHighScore = async (score) => {
+    try { await setDoc(REF(), { best: score }); }
+    catch(e) { console.warn('Firebase save failed', e); }
+  };
+}
+</script>
+
 <script>
 'use strict';
 
@@ -140,10 +194,14 @@ let maxCombo = 0;
 const MESS_MAX = CONFIG.messMax;
 let messCount = 0;
 
-// High score persistence
+// High score persistence (localStorage + optional Firebase)
 try { highScore = parseInt(localStorage.getItem('gtn_highscore')) || 0; } catch(e) {}
+// If Firebase loaded a higher remote score, use that
+if ((window._highScore || 0) > highScore) highScore = window._highScore;
+
 function saveHighScore() {
   try { localStorage.setItem('gtn_highscore', highScore); } catch(e) {}
+  if (window._fbSaveHighScore) window._fbSaveHighScore(highScore);
 }
 
 // Mute persistence

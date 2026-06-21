@@ -4,6 +4,30 @@
 
 const CONFIG = {
 
+  // ---- Firebase (global high score) ----------------------------------
+  // Paste your Firebase project config here (from Firebase console →
+  // Project settings → Your apps → SDK setup and configuration).
+  // Leave firebase as null to use localStorage only.
+  firebase: null,
+  // firebase: {
+  //   apiKey:            "AIza...",
+  //   authDomain:        "yourapp.firebaseapp.com",
+  //   projectId:         "yourapp",
+  //   storageBucket:     "yourapp.appspot.com",
+  //   messagingSenderId: "123456789",
+  //   appId:             "1:123:web:abc",
+  // },
+
+  // ---- JSONbin (simpler alternative to Firebase) ---------------------
+  // 1. Sign up free at https://jsonbin.io
+  // 2. Create a bin with content: {"best":0}
+  // 3. Fill in your Bin ID and API key below, then set enabled: true
+  jsonbin: {
+    enabled:   true,
+    binId:     '6a38202cda38895dfee79bfd',
+    apiKey:    '$2a$10$OBzj0kZyoLDw3SFfjZ6AfecUnO1Av3x2vvc.9p5Lw6sE/nc5tqNNq',
+  },
+
   // ---- Character Names -----------------------------------------------
   // player1 throws the laundry (top of screen)
   // player2 catches the laundry (bottom of screen, controlled by you)
