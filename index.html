@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Tvättspelet</title>
+  <title id="pageTitle">Tvättspelet</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
@@ -24,8 +24,20 @@ canvas {
 </head>
 <body>
 <canvas id="gc"></canvas>
+<script src="config.js"></script>
 <script>
 'use strict';
+
+// Resolves a CONFIG.text key, replacing {player1}/{player2} with names.
+function t(key) {
+  const str = CONFIG.text[key] || key;
+  return str
+    .replace(/{player1}/g, CONFIG.player1Name)
+    .replace(/{player2}/g, CONFIG.player2Name);
+}
+
+// Apply title from config
+document.title = t('gameTitle');
 // ============================================================
   // Tvättspelet — Single-file 16-bit pixel catcher game
 // ============================================================
@@ -37,29 +49,8 @@ const ctx = canvas.getContext('2d');
 const W = 400, H = 600;
 let renderDpr = 1;
 
-// Colors — wedding palette
-const COL = {
-  sage: '#374e2e',
-  rose: '#d8b9a4',
-  darkGreen: '#384839',
-  offWhite: '#f9f9f9',
-  gold: '#d4a017',
-  ironGray: '#7a7a7a',
-  floor: '#a0764a',
-  floorDark: '#8b6239',
-  bg: '#e8e0d6',
-  wall: '#f2ece6',
-  skin: '#f5c8a8',
-  gideonHair: '#e8c840',
-  gideonHairDark: '#c8a830',
-  saraHair: '#1a1a1a',
-  blueGreen: '#3a9988',
-  brownEye: '#5a3018',
-  white: '#ffffff',
-  black: '#000000',
-  red: '#cc3333',
-  darkRose: '#b8907a',
-};
+// Colors — from config.js
+const COL = CONFIG.colors;
 
 // ============================================================
 // AUDIO ENGINE (procedural, Web Audio API)
@@ -146,7 +137,7 @@ let multiplierTimer = 0;
 let stunTimer = 0;
 let combo = 0;
 let maxCombo = 0;
-const MESS_MAX = 15;
+const MESS_MAX = CONFIG.messMax;
 let messCount = 0;
 
 // High score persistence
@@ -380,13 +371,13 @@ const photoSprites = {
 };
 
 Promise.all([
-  loadImageCandidates(['gideon.png', 'Gidde.jpeg']).then(img => {
+  loadImageCandidates(CONFIG.photos.player2).then(img => {
     photoSprites.gideon = preprocessCharacterImage(img, 4096, 44);
   }),
-  loadImageCandidates(['sara_down.png', 'Sara_hands_down.jpg']).then(img => {
+  loadImageCandidates(CONFIG.photos.player1Down).then(img => {
     photoSprites.saraDown = preprocessCharacterImage(img, 4096, 48);
   }),
-  loadImageCandidates(['Sara_hands_up_crop_nobg.png', 'Sara_hands_up_crop.jpg', 'Sara_hands_up.jpg', 'sara_up.png']).then(img => {
+  loadImageCandidates(CONFIG.photos.player1Up).then(img => {
     photoSprites.saraUp = preprocessCharacterImage(img, 4096, 48);
   }),
 ]).catch(() => {
@@ -453,16 +444,16 @@ const GIDEON_Y = H - 85 - GIDEON_BASKET_OFFSET_Y - BASKET_H;
 // ITEM DEFINITIONS
 // ============================================================
 const ITEM_TYPES = {
-  sock:         { points: 10, w: 12, h: 14, special: false, legendIconH: 8,  legendText: null },
-  dress:        { points: 10, w: 14, h: 18, special: false, legendIconH: 10, legendText: null },
-  pants:        { points: 10, w: 14, h: 14, special: false, legendIconH: 8,  legendText: null },
-  scarf:        { points: 10, w: 16, h: 8,  special: false, legendIconH: 6,  legendText: null },
-  tshirt:       { points: 10, w: 16, h: 14, special: false, legendIconH: 8,  legendText: null },
-  hoodie:       { points: 10, w: 14, h: 16, special: false, legendIconH: 9,  legendText: null },
-  hat:          { points: 10, w: 14, h: 10, special: false, legendIconH: 5,  legendText: null },
-  weddingDress: { points: 50, w: 18, h: 22, special: true,  legendIconH: 11, legendText: 'Brudklänning: +50 poäng',   wallText: 'Brudklänning: +50 poäng' },
-  rings:        { points: 20, w: 10, h: 10, special: true,  legendIconH: 6,  legendText: 'Ringar: x2 poäng i 5 sek', wallText: 'Ringar: x2 poäng i 5 sek' },
-  iron:         { points: 0,  w: 16, h: 14, special: true,  legendIconH: 8,  legendText: 'Strykjärn: Gideon stunnad', wallText: 'Strykjärn: Gideon stunnad' },
+  sock:         { points: CONFIG.scoring.regularPoints, w: 12, h: 14, special: false, legendIconH: 8,  legendText: null },
+  dress:        { points: CONFIG.scoring.regularPoints, w: 14, h: 18, special: false, legendIconH: 10, legendText: null },
+  pants:        { points: CONFIG.scoring.regularPoints, w: 14, h: 14, special: false, legendIconH: 8,  legendText: null },
+  scarf:        { points: CONFIG.scoring.regularPoints, w: 16, h: 8,  special: false, legendIconH: 6,  legendText: null },
+  tshirt:       { points: CONFIG.scoring.regularPoints, w: 16, h: 14, special: false, legendIconH: 8,  legendText: null },
+  hoodie:       { points: CONFIG.scoring.regularPoints, w: 14, h: 16, special: false, legendIconH: 9,  legendText: null },
+  hat:          { points: CONFIG.scoring.regularPoints, w: 14, h: 10, special: false, legendIconH: 5,  legendText: null },
+  weddingDress: { points: CONFIG.scoring.weddingDressPoints, w: 18, h: 22, special: true,  legendIconH: 11, legendText: t('weddingDressText'), wallText: t('weddingDressText') },
+  rings:        { points: CONFIG.scoring.ringsPoints,        w: 10, h: 10, special: true,  legendIconH: 6,  legendText: t('ringsText'),        wallText: t('ringsText') },
+  iron:         { points: 0,                                 w: 16, h: 14, special: true,  legendIconH: 8,  legendText: t('ironText'),         wallText: t('ironText') },
 };
 
 const regularTypes = Object.keys(ITEM_TYPES).filter(k => !ITEM_TYPES[k].special);
@@ -645,12 +636,12 @@ let popup = null;
 let popupTimer = 0;
 
 const popupMessages = {
-  firstMiss: 'Hallå, plocka upp det!',
-  combo5: 'Du är bra på att städa!',
-  ironStun: 'Akta strykjärnet!',
-  weddingDress: 'Du räddade brudklänningen!',
-  highMess: 'Det börjar bli stökigt...',
-  combo10: 'Du är en tvättmaskin!',
+  firstMiss:    t('popupFirstMiss'),
+  combo5:       t('popupCombo5'),
+  ironStun:     t('popupIronStun'),
+  weddingDress: t('popupWeddingDress'),
+  highMess:     t('popupHighMess'),
+  combo10:      t('popupCombo10'),
 };
 
 let shownPopups = {};
@@ -800,7 +791,7 @@ function drawBackground(showWallInstructions) {
     ctx.textAlign = 'center';
     ctx.font = 'bold 11px monospace';
     const floorLabelY = 128;
-    ctx.fillText('Vanliga kläder (+10)', W / 2, floorLabelY);
+    ctx.fillText(t('regularLabel'), W / 2, floorLabelY);
     const floorIconY = 146;
     const floorStepX = 42;
     const floorStartX = W / 2 - ((regularTypes.length - 1) * floorStepX) / 2;
@@ -935,11 +926,11 @@ function drawHUD() {
 
   // Score
   ctx.fillStyle = COL.darkGreen;
-  ctx.fillText('Poäng: ' + score, 10, 19);
+  ctx.fillText(t('hudScore') + score, 10, 19);
 
   // High score
   ctx.textAlign = 'right';
-  ctx.fillText('Bäst: ' + highScore, W - 10, 20);
+  ctx.fillText(t('hudBest') + highScore, W - 10, 20);
 
   // Multiplier
   if (multiplier > 1) {
@@ -961,7 +952,7 @@ function drawHUD() {
   ctx.fillRect(barX + 1, barY + 1, (barW - 2) * pct, barH - 2);
   ctx.fillStyle = COL.darkGreen;
   ctx.font = '9px monospace';
-  ctx.fillText('Stök', barX, barY + barH + 10);
+  ctx.fillText(t('hudMess'), barX, barY + barH + 10);
 }
 
 // ============================================================
@@ -1072,12 +1063,12 @@ function drawTitle() {
   ctx.textAlign = 'center';
   ctx.fillStyle = COL.darkGreen;
   ctx.font = 'bold 28px monospace';
-  ctx.fillText('Tvättspelet', W/2, 115);
+  ctx.fillText(t('gameTitle'), W/2, 115);
 
   // Subtitle
   ctx.fillStyle = COL.rose;
   ctx.font = '14px monospace';
-  ctx.fillText('En helt vanlig dag hos Sara & Gideon.', W/2, 160);
+  ctx.fillText(t('subtitle'), W/2, 160);
 
   // Draw Sara and Gideon preview
   const titleSaraCenterX = W / 2 - 60;
@@ -1131,23 +1122,23 @@ function drawTitle() {
 
     ctx.fillStyle = COL.darkGreen;
     ctx.font = 'bold 14px monospace';
-    ctx.fillText('Tryck för att spela', W/2, 483);
+    ctx.fillText(t('playPrompt'), W/2, 483);
   }
 
   // High score
   if (highScore > 0) {
     ctx.fillStyle = COL.sage;
     ctx.font = '12px monospace';
-    ctx.fillText('Bästa poäng: ' + highScore, W/2, 516);
+    ctx.fillText(t('bestScore') + highScore, W/2, 516);
   }
 
   // Quick instruction line
   ctx.fillStyle = COL.darkGreen;
   ctx.font = 'bold 12px monospace';
-  ctx.fillText('Flytta musen/fingret och fånga kläder', W/2, 536);
+  ctx.fillText(t('instructLine1'), W/2, 536);
   ctx.font = '11px monospace';
   ctx.fillStyle = '#555';
-  ctx.fillText('Undvik att tappa för många plagg', W/2, 552);
+  ctx.fillText(t('instructLine2'), W/2, 552);
 
   drawClearScoreBtn();
   drawMuteBtn();
@@ -1189,7 +1180,7 @@ function drawTitleLegend() {
   ctx.font = 'bold 11px monospace';
   const centerX = boxX + boxW / 2;
   const regularLabelY = boxY + 38;
-  ctx.fillText('Vanliga kläder = +10 poäng', centerX, regularLabelY);
+  ctx.fillText(t('regularClothes'), centerX, regularLabelY);
 
   const row1Y = boxY + 58;
   const row2Y = boxY + 80;
@@ -1284,12 +1275,12 @@ function drawGameOver() {
   // Title
   ctx.fillStyle = COL.darkGreen;
   ctx.font = 'bold 32px monospace';
-  ctx.fillText('Game Over!', W/2, panelY + 18);
+  ctx.fillText(t('gameOver'), W/2, panelY + 18);
 
   // Subtitle
   ctx.font = '14px monospace';
   ctx.fillStyle = '#666';
-  ctx.fillText('Det blev för stökigt...', W/2, panelY + 58);
+  ctx.fillText(t('gameOverSub'), W/2, panelY + 58);
 
   // Score section — gap is the whitespace between bottom of one text and top of next
   const gap = 14;
@@ -1310,7 +1301,7 @@ function drawGameOver() {
 
   ctx.font = '12px monospace';
   ctx.fillStyle = '#888';
-  ctx.fillText('Ditt resultat', W/2, scoreStartY);
+  ctx.fillText(t('yourScore'), W/2, scoreStartY);
   
   ctx.font = 'bold 28px monospace';
   ctx.fillStyle = COL.sage;
@@ -1319,14 +1310,14 @@ function drawGameOver() {
   if (newRecord) {
     ctx.fillStyle = COL.gold;
     ctx.font = 'bold 16px monospace';
-    ctx.fillText('⭐ Nytt rekord! ⭐', W/2, bastY);
+    ctx.fillText(t('newRecord'), W/2, bastY);
     ctx.font = '11px monospace';
     ctx.fillStyle = '#888';
-    ctx.fillText('Tidigare: ' + prevHighScore, W/2, bastY + 22);
+    ctx.fillText(t('prevRecord') + prevHighScore, W/2, bastY + 22);
   } else {
     ctx.font = '12px monospace';
     ctx.fillStyle = '#888';
-    ctx.fillText('Bäst: ' + highScore, W/2, bastY);
+    ctx.fillText(t('hudBest') + highScore, W/2, bastY);
   }
 
   // Bottom divider — gap below "Bäst"
@@ -1362,7 +1353,7 @@ function drawGameOver() {
   ctx.fillStyle = COL.offWhite;
   ctx.font = 'bold 16px monospace';
   ctx.textBaseline = 'middle';
-  ctx.fillText('▶ Spela igen', W/2, btn1Y + btnH / 2 + 1);
+  ctx.fillText(t('btnPlayAgain'), W/2, btn1Y + btnH / 2 + 1);
 
   // Main menu button (with shadow)
   ctx.fillStyle = 'rgba(0,0,0,0.15)';
@@ -1381,7 +1372,7 @@ function drawGameOver() {
   ctx.fillStyle = COL.offWhite;
   ctx.font = 'bold 16px monospace';
   ctx.textBaseline = 'middle';
-  ctx.fillText('⌂ Meny', W/2, btn2Y + btnH / 2 + 1);
+  ctx.fillText(t('btnMainMenu'), W/2, btn2Y + btnH / 2 + 1);
 
   // Update click targets dynamically
   gameOverButtons.playAgain.x = btnX; gameOverButtons.playAgain.y = btn1Y; gameOverButtons.playAgain.w = btnW; gameOverButtons.playAgain.h = btnH;
@@ -1513,14 +1504,14 @@ function updateGame(dt) {
       items.splice(i, 1);
 
       if (it.type === 'iron') {
-        stunTimer = 1.5;
+        stunTimer = CONFIG.scoring.ironStunDuration;
         sfxIron();
         showPopup('ironStun');
         combo = 0;
         spawnParticles(gideonX, basketTop, '#888', 8);
       } else if (it.type === 'rings') {
-        multiplier = 2;
-        multiplierTimer = 5;
+        multiplier = CONFIG.scoring.ringsMultiplier;
+        multiplierTimer = CONFIG.scoring.ringsDuration;
         score += it.points * multiplier;
         sfxRings();
         combo++;
