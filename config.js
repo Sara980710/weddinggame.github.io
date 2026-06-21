@@ -24,7 +24,7 @@ const CONFIG = {
   // 3. Fill in your Bin ID and API key below, then set enabled: true
   jsonbin: {
     enabled:   true,
-    binId:     '6a38202cda38895dfee79bfd',
+    binId:     '6a384198f5f4af5e29199857',
     apiKey:    '$2a$10$zlpUWZvJwA9jKwPMx1K3wuSpg6F5LJPd6Q5Zn.lWnO.iQAF9mTJiG',
   },
 

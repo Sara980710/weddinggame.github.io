@@ -20,10 +20,49 @@ canvas {
   margin: 0 auto;
   image-rendering: auto;
 }
+#name-overlay {
+  display: none;
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: #f4f0eb;
+  border: 2px solid #384839;
+  border-radius: 12px;
+  padding: 24px 28px;
+  text-align: center;
+  z-index: 100;
+  font-family: monospace;
+  min-width: 240px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+}
+#name-overlay h2 { color: #384839; font-size: 16px; margin-bottom: 8px; }
+#name-overlay p  { color: #888; font-size: 12px; margin-bottom: 14px; }
+#name-input {
+  width: 100%; padding: 8px 10px;
+  border: 2px solid #384839; border-radius: 6px;
+  font-family: monospace; font-size: 15px;
+  background: #fff; color: #222;
+  margin-bottom: 12px; box-sizing: border-box;
+  -webkit-user-select: text; user-select: text;
+}
+#name-submit {
+  background: #374e2e; color: #f9f9f9;
+  border: none; border-radius: 6px;
+  padding: 8px 22px; font-family: monospace;
+  font-size: 14px; cursor: pointer;
+}
+#name-submit:hover { background: #384839; }
 </style>
 </head>
 <body>
 <canvas id="gc"></canvas>
+<div id="name-overlay">
+  <h2>Ange ditt namn</h2>
+  <p id="name-overlay-sub">för att spara ditt resultat på topplistan</p>
+  <input id="name-input" type="text" maxlength="20" placeholder="Ditt namn..." autocomplete="off" />
+  <br>
+  <button id="name-submit">Spara</button>
+</div>
 <script src="config.js"></script>
 
 <!-- Remote high score bridge (Firebase or JSONbin — configured in config.js) -->
@@ -39,19 +78,37 @@ if (CONFIG.jsonbin && CONFIG.jsonbin.enabled) {
   try {
     const res  = await fetch(`${BASE}/${binId}/latest`, { headers });
     const json = await res.json();
-    const remote = json.record?.best || 0;
-    if (window._onRemoteScore) window._onRemoteScore(remote);
+    const rec  = json.record || {};
+    if (window._onRemoteScore) window._onRemoteScore(rec.best || 0);
+    if (window._onRemoteLeaderboard) window._onRemoteLeaderboard(rec.scores || []);
   } catch(e) { console.warn('JSONbin load failed', e); }
 
-  // Save helper
+  // Save helper — writes both best score and scores array
   window._fbSaveHighScore = async (score) => {
     try {
+      // First read current record so we don't overwrite scores array
+      const res  = await fetch(`${BASE}/${binId}/latest`, { headers });
+      const json = await res.json();
+      const rec  = json.record || {};
       await fetch(`${BASE}/${binId}`, {
         method:  'PUT',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ best: score }),
+        body:    JSON.stringify({ ...rec, best: score }),
       });
     } catch(e) { console.warn('JSONbin save failed', e); }
+  };
+
+  window._fbSaveLeaderboard = async (scores) => {
+    try {
+      const res  = await fetch(`${BASE}/${binId}/latest`, { headers });
+      const json = await res.json();
+      const rec  = json.record || {};
+      await fetch(`${BASE}/${binId}`, {
+        method:  'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ ...rec, scores }),
+      });
+    } catch(e) { console.warn('JSONbin leaderboard save failed', e); }
   };
 }
 
@@ -67,14 +124,26 @@ if (CONFIG.firebase) {
   try {
     const snap = await getDoc(REF());
     if (snap.exists()) {
-      const remote = snap.data().best || 0;
-      if (window._onRemoteScore) window._onRemoteScore(remote);
+      const data = snap.data();
+      if (window._onRemoteScore)       window._onRemoteScore(data.best || 0);
+      if (window._onRemoteLeaderboard) window._onRemoteLeaderboard(data.scores || []);
     }
   } catch(e) { console.warn('Firebase load failed', e); }
 
   window._fbSaveHighScore = async (score) => {
-    try { await setDoc(REF(), { best: score }); }
-    catch(e) { console.warn('Firebase save failed', e); }
+    try {
+      const snap = await getDoc(REF());
+      const prev = snap.exists() ? snap.data() : {};
+      await setDoc(REF(), { ...prev, best: score });
+    } catch(e) { console.warn('Firebase save failed', e); }
+  };
+
+  window._fbSaveLeaderboard = async (scores) => {
+    try {
+      const snap = await getDoc(REF());
+      const prev = snap.exists() ? snap.data() : {};
+      await setDoc(REF(), { ...prev, scores });
+    } catch(e) { console.warn('Firebase leaderboard save failed', e); }
   };
 }
 </script>
@@ -179,7 +248,7 @@ function stopMusic() {
 // ============================================================
 // GAME STATE
 // ============================================================
-const STATE = { TITLE: 0, PLAYING: 1, GAME_OVER: 2 };
+const STATE = { TITLE: 0, PLAYING: 1, GAME_OVER: 2, LEADERBOARD: 3 };
 let state = STATE.TITLE;
 let score = 0;
 let highScore = 0;
@@ -200,15 +269,40 @@ let messCount = 0;
 // High score persistence (localStorage + optional Firebase/JSONbin)
 let localHighScore = 0;
 let remoteHighScore = 0;
+let leaderboard = []; // [{name, score}] sorted by score desc
+let playerName = '';
 try { localHighScore = parseInt(localStorage.getItem('gtn_highscore')) || 0; } catch(e) {}
+try { playerName = localStorage.getItem('gtn_name') || ''; } catch(e) {}
+try { leaderboard = JSON.parse(localStorage.getItem('gtn_leaderboard') || '[]'); } catch(e) {}
 highScore = localHighScore;
 
 // Called by the module script once the remote score has loaded.
-// (Module scripts are deferred so we can't read window._highScore synchronously at startup.)
 window._onRemoteScore = (remote) => {
   remoteHighScore = remote || 0;
   if (remoteHighScore > highScore) highScore = remoteHighScore;
 };
+
+// Called by the module script once the remote leaderboard has loaded.
+// Remote is the source of truth; we just cache it locally.
+window._onRemoteLeaderboard = (scores) => {
+  if (!Array.isArray(scores)) return;
+  leaderboard = scores.filter(e => e && e.name).sort((a, b) => b.score - a.score);
+  try { localStorage.setItem('gtn_leaderboard', JSON.stringify(leaderboard)); } catch(e) {}
+};
+
+function saveLeaderboard() {
+  try { localStorage.setItem('gtn_leaderboard', JSON.stringify(leaderboard)); } catch(e) {}
+  if (window._fbSaveLeaderboard) window._fbSaveLeaderboard(leaderboard);
+}
+
+// Add a new entry — duplicates allowed, each submission is its own entry.
+function submitToLeaderboard(name, score) {
+  if (!name) return;
+  leaderboard.push({ name, score });
+  leaderboard.sort((a, b) => b.score - a.score);
+  if (leaderboard.length > LB_MAX) leaderboard = leaderboard.slice(0, LB_MAX);
+  saveLeaderboard();
+}
 
 function saveHighScore() {
   localHighScore = highScore;
@@ -223,8 +317,40 @@ function saveMute() {
 }
 
 // ============================================================
-// INPUT
+// NAME INPUT OVERLAY
 // ============================================================
+let _nameCallback = null;
+
+function showNameOverlay(subText, callback) {
+  _nameCallback = callback;
+  const overlay = document.getElementById('name-overlay');
+  const input   = document.getElementById('name-input');
+  document.getElementById('name-overlay-sub').textContent = subText;
+  input.value = playerName || '';
+  overlay.style.display = 'block';
+  // Allow touch/select inside the overlay
+  overlay.style.touchAction = 'auto';
+  setTimeout(() => input.focus(), 80);
+}
+
+function hideNameOverlay() {
+  document.getElementById('name-overlay').style.display = 'none';
+  _nameCallback = null;
+}
+
+document.getElementById('name-submit').addEventListener('click', () => {
+  const name = document.getElementById('name-input').value.trim();
+  if (!name) return;
+  playerName = name;
+  try { localStorage.setItem('gtn_name', playerName); } catch(e) {}
+  const cb = _nameCallback;
+  hideNameOverlay();
+  if (cb) cb(name);
+});
+
+document.getElementById('name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('name-submit').click();
+});
 let pointerX = W / 2;
 let pointerActive = false;
 let clicked = false;
@@ -249,7 +375,7 @@ canvas.addEventListener('mousedown', e => {
   pointerX = p.x;
   clickX = p.x;
   clickY = p.y;
-  if (!checkClearScoreClick(p.x, p.y) && !checkMuteClick(p.x, p.y)) clicked = true;
+  if (!checkMuteClick(p.x, p.y)) clicked = true;
   pointerActive = true;
 });
 canvas.addEventListener('touchstart', e => {
@@ -260,7 +386,7 @@ canvas.addEventListener('touchstart', e => {
     pointerX = p.x;
     clickX = p.x;
     clickY = p.y;
-    if (!checkClearScoreClick(p.x, p.y) && !checkMuteClick(p.x, p.y)) clicked = true;
+    if (!checkMuteClick(p.x, p.y)) clicked = true;
     pointerActive = true;
   }
 }, { passive: false });
@@ -1118,31 +1244,117 @@ function checkMuteClick(px, py) {
   return false;
 }
 
-const clearScoreBtn = { x: 5, y: H - 30, w: 25, h: 20 };
 
-function drawClearScoreBtn() {
-  ctx.save();
-  ctx.globalAlpha = 0.35;
-  ctx.fillStyle = '#888';
-  ctx.fillRect(clearScoreBtn.x, clearScoreBtn.y, clearScoreBtn.w, clearScoreBtn.h);
-  ctx.fillStyle = COL.offWhite;
-  ctx.font = '9px monospace';
+// ============================================================
+// LEADERBOARD SCREEN
+// ============================================================
+const LB_PAGE_SIZE = 10;
+const LB_MAX = 50;
+let leaderboardPage = 0;
+let leaderboardUpBtn   = { x: 0, y: 0, w: 0, h: 0 };
+let leaderboardDownBtn = { x: 0, y: 0, w: 0, h: 0 };
+let leaderboardBackBtn = { x: W/2 - 60, y: 0, w: 120, h: 30 };
+
+function drawLeaderboard() {
+  drawBackground(false);
+  ctx.fillStyle = 'rgba(244,240,235,0.97)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Title
   ctx.textAlign = 'center';
-  ctx.fillText('RHS', clearScoreBtn.x + clearScoreBtn.w / 2, clearScoreBtn.y + 13);
-  ctx.restore();
-}
+  ctx.fillStyle = COL.darkGreen;
+  ctx.font = 'bold 22px monospace';
+  ctx.fillText('🏆 Topplista', W/2, 44);
 
-function checkClearScoreClick(px, py) {
-  if (px >= clearScoreBtn.x && px <= clearScoreBtn.x + clearScoreBtn.w &&
-      py >= clearScoreBtn.y && py <= clearScoreBtn.y + clearScoreBtn.h) {
-    highScore = 0;
-    saveHighScore();
-    return true;
+  const top50 = leaderboard.slice(0, LB_MAX);
+  const totalPages = Math.max(1, Math.ceil(top50.length / LB_PAGE_SIZE));
+  if (leaderboardPage >= totalPages) leaderboardPage = 0;
+  const startIdx = leaderboardPage * LB_PAGE_SIZE;
+  const rows = top50.slice(startIdx, startIdx + LB_PAGE_SIZE);
+
+  const panelX = 20, panelY = 56, panelW = W - 40, rowH = 26;
+  const panelH = LB_PAGE_SIZE * rowH + 16; // fixed height for 10 rows
+
+  // Panel background
+  ctx.fillStyle = 'rgba(233,223,210,0.93)';
+  ctx.beginPath(); roundRect(ctx, panelX, panelY, panelW, panelH, 8); ctx.fill();
+  ctx.strokeStyle = COL.darkGreen; ctx.lineWidth = 2;
+  ctx.beginPath(); roundRect(ctx, panelX, panelY, panelW, panelH, 8); ctx.stroke();
+
+  if (top50.length === 0) {
+    ctx.font = '13px monospace'; ctx.fillStyle = '#888';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Inga resultat ännu!', W/2, panelY + panelH / 2);
+    ctx.textBaseline = 'alphabetic';
+  } else {
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < rows.length; i++) {
+      const rank = startIdx + i;
+      const y = panelY + 8 + i * rowH + rowH / 2;
+      const isMe = playerName && rows[i].name.toLowerCase() === playerName.toLowerCase();
+
+      if (isMe) {
+        ctx.fillStyle = 'rgba(212,160,23,0.18)';
+        ctx.fillRect(panelX + 2, panelY + 8 + i * rowH, panelW - 4, rowH);
+      }
+
+      const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : (rank + 1) + '.';
+      ctx.textAlign = 'left';
+      ctx.font = rank < 3 ? 'bold 13px monospace' : '12px monospace';
+      ctx.fillStyle = isMe ? COL.gold : COL.darkGreen;
+      ctx.fillText(medal, panelX + 8, y);
+
+      // Name (clipped so it doesn't overlap score)
+      ctx.save();
+      ctx.beginPath(); ctx.rect(panelX + 38, panelY, panelW - 90, panelH); ctx.clip();
+      ctx.fillText(rows[i].name, panelX + 38, y);
+      ctx.restore();
+
+      ctx.textAlign = 'right';
+      ctx.fillText(rows[i].score, panelX + panelW - 8, y);
+    }
+    ctx.textBaseline = 'alphabetic';
   }
-  return false;
+
+  // Scroll buttons
+  const navY = panelY + panelH + 12;
+  const btnW = 52, btnH = 24;
+  const upX = W / 2 - btnW - 4, downX = W / 2 + 4;
+  leaderboardUpBtn   = { x: upX,   y: navY, w: btnW, h: btnH };
+  leaderboardDownBtn = { x: downX, y: navY, w: btnW, h: btnH };
+
+  function navBtn(x, label, disabled) {
+    ctx.fillStyle = disabled ? 'rgba(180,180,180,0.25)' : 'rgba(55,78,46,0.88)';
+    ctx.beginPath(); roundRect(ctx, x, navY, btnW, btnH, 5); ctx.fill();
+    ctx.fillStyle = disabled ? '#bbb' : COL.offWhite;
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, x + btnW / 2, navY + btnH / 2 + 1);
+    ctx.textBaseline = 'alphabetic';
+  }
+  navBtn(upX,   '▲ Upp', leaderboardPage === 0);
+  navBtn(downX, '▼ Ned', leaderboardPage >= totalPages - 1);
+
+  // Page indicator
+  ctx.font = '11px monospace'; ctx.fillStyle = '#666'; ctx.textAlign = 'center';
+  ctx.fillText('Sida ' + (leaderboardPage + 1) + ' / ' + totalPages + '  (' + top50.length + ' resultat)', W/2, navY + btnH + 14);
+
+  // Back button
+  const bbY = navY + btnH + 30;
+  leaderboardBackBtn = { x: W/2 - 60, y: bbY, w: 120, h: 30 };
+  ctx.fillStyle = 'rgba(0,0,0,0.10)';
+  ctx.beginPath(); roundRect(ctx, W/2 - 58, bbY + 2, 120, 30, 7); ctx.fill();
+  ctx.fillStyle = COL.rose;
+  ctx.beginPath(); roundRect(ctx, W/2 - 60, bbY, 120, 30, 7); ctx.fill();
+  ctx.strokeStyle = COL.darkGreen; ctx.lineWidth = 2;
+  ctx.beginPath(); roundRect(ctx, W/2 - 60, bbY, 120, 30, 7); ctx.stroke();
+  ctx.fillStyle = COL.darkGreen; ctx.font = 'bold 14px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('← Tillbaka', W/2, bbY + 16);
+  ctx.textBaseline = 'alphabetic';
+
+  drawMuteBtn();
 }
-
-
 
 // ============================================================
 // TITLE SCREEN
@@ -1251,7 +1463,29 @@ function drawTitle() {
   ctx.fillStyle = '#555';
   ctx.fillText(t('instructLine2'), W/2, 546);
 
-  drawClearScoreBtn();
+  // Leaderboard button (centred)
+  const lb1X = W/2 - 72, lbY2 = 556, lbW = 144, lbH = 26;
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.beginPath(); roundRect(ctx, lb1X + 2, lbY2 + 2, lbW, lbH, 6); ctx.fill();
+  ctx.fillStyle = COL.darkGreen;
+  ctx.beginPath(); roundRect(ctx, lb1X, lbY2, lbW, lbH, 6); ctx.fill();
+  ctx.fillStyle = COL.offWhite;
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('🏆 Topplista', W/2, lbY2 + lbH / 2 + 1);
+  ctx.textBaseline = 'alphabetic';
+
+  // Clear local — small square icon button, lower-left
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = 'rgba(120,40,40,0.6)';
+  ctx.beginPath(); roundRect(ctx, 6, H - 24, 20, 20, 4); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = '12px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('🗑', 16, H - 14);
+  ctx.globalAlpha = 1;
+  ctx.textBaseline = 'alphabetic';
+
   drawMuteBtn();
 }
 
@@ -1338,6 +1572,29 @@ const gameOverButtons = {
   mainMenu: { x: W/2 - 70, y: 338, w: 140, h: 35 },
 };
 
+function clearLocalScores() {
+  localHighScore = 0;
+  highScore = remoteHighScore || 0;
+  try { localStorage.removeItem('gtn_highscore'); } catch(e) {}
+}
+
+function checkTitleClick(px, py) {
+  const lbY2 = 556, lbH = 26;
+  // Leaderboard button
+  if (px >= W/2 - 72 && px <= W/2 + 72 && py >= lbY2 && py <= lbY2 + lbH) {
+    leaderboardPage = 0;
+    state = STATE.LEADERBOARD;
+    return;
+  }
+  // Clear local button (lower-left square icon)
+  if (px >= 6 && px <= 26 && py >= H - 24 && py <= H - 4) {
+    clearLocalScores();
+    return;
+  }
+  // Anywhere else → start game
+  resetGame();
+}
+
 function checkGameOverClick(px, py) {
   if (px >= gameOverButtons.playAgain.x && px <= gameOverButtons.playAgain.x + gameOverButtons.playAgain.w &&
       py >= gameOverButtons.playAgain.y && py <= gameOverButtons.playAgain.y + gameOverButtons.playAgain.h) {
@@ -1348,6 +1605,12 @@ function checkGameOverClick(px, py) {
       py >= gameOverButtons.mainMenu.y && py <= gameOverButtons.mainMenu.y + gameOverButtons.mainMenu.h) {
     state = STATE.TITLE;
     stopMusic();
+    return true;
+  }
+  const lb = gameOverButtons.leaderboard;
+  if (lb && px >= lb.x && px <= lb.x + lb.w && py >= lb.y && py <= lb.y + lb.h) {
+    leaderboardPage = 0;
+    state = STATE.LEADERBOARD;
     return true;
   }
   return false;
@@ -1365,7 +1628,7 @@ function drawGameOver() {
   ctx.fillRect(0, 0, W, H);
 
   // Panel (centered and symmetric with smaller margins)
-  const panelX = 10, panelY = 70, panelW = W - 20, panelH = 370;
+  const panelX = 10, panelY = 70, panelW = W - 20, panelH = 400;
   ctx.fillStyle = COL.offWhite;
   ctx.beginPath();
   roundRect(ctx, panelX, panelY, panelW, panelH, 12);
@@ -1525,7 +1788,28 @@ function drawGameOver() {
   gameOverButtons.playAgain.x = btnX; gameOverButtons.playAgain.y = btn1Y; gameOverButtons.playAgain.w = btnW; gameOverButtons.playAgain.h = btnH;
   gameOverButtons.mainMenu.x = btnX; gameOverButtons.mainMenu.y = btn2Y; gameOverButtons.mainMenu.w = btnW; gameOverButtons.mainMenu.h = btnH;
 
-  drawClearScoreBtn();
+  // Leaderboard button (smaller, below the two main buttons)
+  const lbY = btn2Y + btnH + btnGap + 4;
+  ctx.fillStyle = 'rgba(0,0,0,0.10)';
+  ctx.beginPath();
+  roundRect(ctx, btnX + 2, lbY + 2, btnW, btnH - 4, 6);
+  ctx.fill();
+  ctx.fillStyle = COL.darkGreen;
+  ctx.beginPath();
+  roundRect(ctx, btnX, lbY, btnW, btnH - 4, 6);
+  ctx.fill();
+  ctx.strokeStyle = COL.sage;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  roundRect(ctx, btnX, lbY, btnW, btnH - 4, 6);
+  ctx.stroke();
+  ctx.fillStyle = COL.offWhite;
+  ctx.font = 'bold 13px monospace';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🏆 Topplista', W/2, lbY + (btnH - 4) / 2 + 1);
+  ctx.textBaseline = 'alphabetic';
+  gameOverButtons.leaderboard = { x: btnX, y: lbY, w: btnW, h: btnH - 4 };
+
   drawMuteBtn();
 }
 
@@ -1732,7 +2016,19 @@ function updateGame(dt) {
         } else {
           newRecord = false;
         }
-        state = STATE.GAME_OVER;
+        // If new record, prompt for name then submit to leaderboard
+        if (newGlobalRecord || newPersonalRecord) {
+          const finalScore = score;
+          const reason = newGlobalRecord
+            ? '🏆 Nytt globalt rekord! (' + finalScore + ' p)'
+            : '⭐ Nytt personligt rekord! (' + finalScore + ' p)';
+          state = STATE.GAME_OVER; // stop the game loop before overlay
+          showNameOverlay(reason, function(name) {
+            submitToLeaderboard(name, finalScore);
+          });
+        } else {
+          state = STATE.GAME_OVER;
+        }
         return;
       }
     }
@@ -1775,7 +2071,6 @@ function renderGame() {
   drawGideonBasket();
   drawHUD();
   drawPopup();
-  drawClearScoreBtn();
   drawMuteBtn();
 }
 
@@ -1819,7 +2114,7 @@ function gameLoop(timestamp) {
     drawTitle();
     if (clicked) {
       clicked = false;
-      resetGame();
+      checkTitleClick(clickX, clickY);
     }
   } else if (state === STATE.PLAYING) {
     updateGame(dt);
@@ -1830,6 +2125,24 @@ function gameLoop(timestamp) {
     if (clicked) {
       clicked = false;
       checkGameOverClick(clickX, clickY);
+    }
+  } else if (state === STATE.LEADERBOARD) {
+    drawLeaderboard();
+    if (clicked) {
+      clicked = false;
+      const b = leaderboardBackBtn;
+      if (clickX >= b.x && clickX <= b.x + b.w && clickY >= b.y && clickY <= b.y + b.h) {
+        state = STATE.TITLE;
+      } else {
+        const top50 = leaderboard.slice(0, LB_MAX);
+        const totalPages = Math.max(1, Math.ceil(top50.length / LB_PAGE_SIZE));
+        const u = leaderboardUpBtn, d = leaderboardDownBtn;
+        if (clickX >= u.x && clickX <= u.x + u.w && clickY >= u.y && clickY <= u.y + u.h) {
+          if (leaderboardPage > 0) leaderboardPage--;
+        } else if (clickX >= d.x && clickX <= d.x + d.w && clickY >= d.y && clickY <= d.y + d.h) {
+          if (leaderboardPage < totalPages - 1) leaderboardPage++;
+        }
+      }
     }
   }
 }
