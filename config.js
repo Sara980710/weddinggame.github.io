@@ -25,7 +25,7 @@ const CONFIG = {
   jsonbin: {
     enabled:   true,
     binId:     '6a38202cda38895dfee79bfd',
-    apiKey:    '$2a$10$OBzj0kZyoLDw3SFfjZ6AfecUnO1Av3x2vvc.9p5Lw6sE/nc5tqNNq',
+    apiKey:    '$2a$10$zlpUWZvJwA9jKwPMx1K3wuSpg6F5LJPd6Q5Zn.lWnO.iQAF9mTJiG',
   },
 
   // ---- Character Names -----------------------------------------------
@@ -99,6 +99,8 @@ const CONFIG = {
     // HUD
     hudScore:         'Poäng: ',
     hudBest:          'Bäst: ',
+    hudHighScore:     'Bästa poäng: ',
+    hudLocal:         'Ditt bästa: ',
     hudMess:          'Stök',
 
     // Game over screen

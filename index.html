@@ -40,7 +40,7 @@ if (CONFIG.jsonbin && CONFIG.jsonbin.enabled) {
     const res  = await fetch(`${BASE}/${binId}/latest`, { headers });
     const json = await res.json();
     const remote = json.record?.best || 0;
-    if (remote > (window._highScore || 0)) window._highScore = remote;
+    if (window._onRemoteScore) window._onRemoteScore(remote);
   } catch(e) { console.warn('JSONbin load failed', e); }
 
   // Save helper
@@ -68,7 +68,7 @@ if (CONFIG.firebase) {
     const snap = await getDoc(REF());
     if (snap.exists()) {
       const remote = snap.data().best || 0;
-      if (remote > (window._highScore || 0)) window._highScore = remote;
+      if (window._onRemoteScore) window._onRemoteScore(remote);
     }
   } catch(e) { console.warn('Firebase load failed', e); }
 
@@ -184,7 +184,10 @@ let state = STATE.TITLE;
 let score = 0;
 let highScore = 0;
 let prevHighScore = 0;
+let prevLocalHighScore = 0;
 let newRecord = false;
+let newGlobalRecord = false;
+let newPersonalRecord = false;
 let gameTime = 0;
 let multiplier = 1;
 let multiplierTimer = 0;
@@ -194,12 +197,21 @@ let maxCombo = 0;
 const MESS_MAX = CONFIG.messMax;
 let messCount = 0;
 
-// High score persistence (localStorage + optional Firebase)
-try { highScore = parseInt(localStorage.getItem('gtn_highscore')) || 0; } catch(e) {}
-// If Firebase loaded a higher remote score, use that
-if ((window._highScore || 0) > highScore) highScore = window._highScore;
+// High score persistence (localStorage + optional Firebase/JSONbin)
+let localHighScore = 0;
+let remoteHighScore = 0;
+try { localHighScore = parseInt(localStorage.getItem('gtn_highscore')) || 0; } catch(e) {}
+highScore = localHighScore;
+
+// Called by the module script once the remote score has loaded.
+// (Module scripts are deferred so we can't read window._highScore synchronously at startup.)
+window._onRemoteScore = (remote) => {
+  remoteHighScore = remote || 0;
+  if (remoteHighScore > highScore) highScore = remoteHighScore;
+};
 
 function saveHighScore() {
+  localHighScore = highScore;
   try { localStorage.setItem('gtn_highscore', highScore); } catch(e) {}
   if (window._fbSaveHighScore) window._fbSaveHighScore(highScore);
 }
@@ -1001,9 +1013,19 @@ function drawHUD() {
   ctx.fillStyle = COL.darkGreen;
   ctx.fillText(t('hudScore') + score, 10, 19);
 
-  // High score
+  // High score — two stacked lines right-aligned when remote is active
   ctx.textAlign = 'right';
-  ctx.fillText(t('hudBest') + highScore, W - 10, 20);
+  ctx.fillStyle = COL.darkGreen;
+  if (remoteHighScore > 0) {
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText(t('hudHighScore') + remoteHighScore, W - 10, 17);
+    ctx.font = '10px monospace';
+    ctx.fillStyle = COL.ironGray;
+    ctx.fillText(t('hudLocal') + localHighScore, W - 10, 30);
+  } else {
+    ctx.font = '16px monospace';
+    ctx.fillText(t('hudBest') + highScore, W - 10, 20);
+  }
 
   // Multiplier
   if (multiplier > 1) {
@@ -1128,25 +1150,25 @@ function checkClearScoreClick(px, py) {
 function drawTitle() {
   drawBackground(false);
 
-  // Overlay
-  ctx.fillStyle = 'rgba(244,240,235,0.85)';
+  // Overlay — fully opaque so background graphics don't bleed through title text
+  ctx.fillStyle = 'rgba(244,240,235,0.97)';
   ctx.fillRect(0, 0, W, H);
 
   // Title
   ctx.textAlign = 'center';
   ctx.fillStyle = COL.darkGreen;
   ctx.font = 'bold 28px monospace';
-  ctx.fillText(t('gameTitle'), W/2, 115);
+  ctx.fillText(t('gameTitle'), W/2, 90);
 
   // Subtitle
   ctx.fillStyle = COL.rose;
   ctx.font = '14px monospace';
-  ctx.fillText(t('subtitle'), W/2, 160);
+  ctx.fillText(t('subtitle'), W/2, 135);
 
   // Draw Sara and Gideon preview
   const titleSaraCenterX = W / 2 - 60;
   const titleGideonCenterX = W / 2 + 60;
-  const titleCharactersCenterY = 225;
+  const titleCharactersCenterY = 200;
   if (photoSprites.saraDown) {
     drawPhotoFitted(
       photoSprites.saraDown,
@@ -1176,7 +1198,7 @@ function drawTitle() {
   // Hearts between them
   ctx.fillStyle = COL.rose;
   ctx.font = '20px serif';
-  ctx.fillText('♥', W/2, 237);
+  ctx.fillText('♥', W/2, 212);
 
   drawTitleLegend();
 
@@ -1185,33 +1207,49 @@ function drawTitle() {
   if (blink) {
     ctx.fillStyle = 'rgba(255,255,255,0.92)';
     ctx.beginPath();
-    roundRect(ctx, W / 2 - 96, 465, 192, 28, 7);
+    roundRect(ctx, W / 2 - 96, 440, 192, 28, 7);
     ctx.fill();
     ctx.strokeStyle = COL.darkGreen;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    roundRect(ctx, W / 2 - 96, 465, 192, 28, 7);
+    roundRect(ctx, W / 2 - 96, 440, 192, 28, 7);
     ctx.stroke();
 
     ctx.fillStyle = COL.darkGreen;
     ctx.font = 'bold 14px monospace';
-    ctx.fillText(t('playPrompt'), W/2, 483);
+    ctx.fillText(t('playPrompt'), W/2, 458);
   }
 
-  // High score
+  // High score(s)
   if (highScore > 0) {
-    ctx.fillStyle = COL.sage;
-    ctx.font = '12px monospace';
-    ctx.fillText(t('bestScore') + highScore, W/2, 516);
+    if (remoteHighScore > 0) {
+      // Two columns: label on top, number centred below it
+      const col1X = W / 2 - 85;
+      const col2X = W / 2 + 25;
+      ctx.font = '11px monospace';
+      ctx.fillStyle = COL.darkGreen;
+      ctx.textAlign = 'left';
+      ctx.fillText(t('hudHighScore'), col1X, 484);
+      ctx.fillText(t('hudLocal'), col2X, 484);
+      // Centre each number under its label
+      const label1W = ctx.measureText(t('hudHighScore')).width;
+      const label2W = ctx.measureText(t('hudLocal')).width;
+      ctx.font = 'bold 14px monospace';
+      ctx.fillStyle = COL.sage;
+      ctx.textAlign = 'center';
+      ctx.fillText(remoteHighScore, col1X + label1W / 2, 500);
+      ctx.fillText(localHighScore,  col2X + label2W / 2, 500);
+      ctx.textAlign = 'center';
+    }
   }
 
   // Quick instruction line
   ctx.fillStyle = COL.darkGreen;
   ctx.font = 'bold 12px monospace';
-  ctx.fillText(t('instructLine1'), W/2, 536);
+  ctx.fillText(t('instructLine1'), W/2, 532);
   ctx.font = '11px monospace';
   ctx.fillStyle = '#555';
-  ctx.fillText(t('instructLine2'), W/2, 552);
+  ctx.fillText(t('instructLine2'), W/2, 546);
 
   drawClearScoreBtn();
   drawMuteBtn();
@@ -1219,7 +1257,7 @@ function drawTitle() {
 
 function drawTitleLegend() {
   const boxX = 22;
-  const boxY = 270;
+  const boxY = 245;
   const boxW = 356;
   const boxH = 180;
 
@@ -1240,7 +1278,7 @@ function drawTitleLegend() {
   // Header
   ctx.textAlign = 'center';
   ctx.font = 'bold 14px monospace';
-  ctx.fillText('Fånga Saras kläder:', boxX + boxW / 2, boxY + 17);
+  ctx.fillText(t('legendHeader'), boxX + boxW / 2, boxY + 17);
   ctx.strokeStyle = '#cdbfae';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -1359,10 +1397,11 @@ function drawGameOver() {
   const gap = 14;
   const smallH = 14;  // approx rendered height of 12px monospace
   const bigH = 34;    // approx rendered height of 28px bold monospace
+  const twoColH = 32; // label (11px) + spacing + number (14px bold)
   const scoreStartY = panelY + 105;
   const poangY = scoreStartY + smallH + gap;
   const bastY = poangY + bigH + gap;
-  const bastH = newRecord ? 22 : smallH;
+  const bastH = (newGlobalRecord || newPersonalRecord) ? twoColH + 22 : twoColH;
 
   // Top divider — gap above "Ditt resultat"
   ctx.strokeStyle = '#ddd';
@@ -1380,18 +1419,53 @@ function drawGameOver() {
   ctx.fillStyle = COL.sage;
   ctx.fillText(score + ' poäng', W/2, poangY);
 
-  if (newRecord) {
+  const col1CX = W / 2 - 75;
+  const col2CX = W / 2 + 75;
+
+  if (newGlobalRecord) {
+    // Beat the global record
     ctx.fillStyle = COL.gold;
     ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'center';
     ctx.fillText(t('newRecord'), W/2, bastY);
     ctx.font = '11px monospace';
     ctx.fillStyle = '#888';
-    ctx.fillText(t('prevRecord') + prevHighScore, W/2, bastY + 22);
-  } else {
-    ctx.font = '12px monospace';
+    ctx.fillText('Tidigare bästa:', col1CX, bastY + 22);
+    ctx.fillText('Ditt tidigare bästa:', col2CX, bastY + 22);
+    ctx.font = 'bold 14px monospace';
+    ctx.fillStyle = COL.darkGreen;
+    ctx.fillText(prevHighScore || '-', col1CX, bastY + 40);
     ctx.fillStyle = '#888';
-    ctx.fillText(t('hudBest') + highScore, W/2, bastY);
+    ctx.fillText(prevLocalHighScore || '-', col2CX, bastY + 40);
+  } else if (newPersonalRecord) {
+    // Beat personal best only
+    ctx.fillStyle = COL.sage;
+    ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('★ Nytt personligt bästa! ★', W/2, bastY);
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#888';
+    ctx.fillText('Ditt tidigare bästa:', col1CX, bastY + 22);
+    ctx.fillText(t('hudHighScore'), col2CX, bastY + 22);
+    ctx.font = 'bold 14px monospace';
+    ctx.fillStyle = '#888';
+    ctx.fillText(prevLocalHighScore || '-', col1CX, bastY + 40);
+    ctx.fillStyle = COL.darkGreen;
+    ctx.fillText(remoteHighScore || localHighScore, col2CX, bastY + 40);
+  } else {
+    // Regular game over — show global and personal best
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#888';
+    ctx.textAlign = 'center';
+    ctx.fillText(t('hudHighScore'), col1CX, bastY);
+    ctx.fillText(t('hudLocal'), col2CX, bastY);
+    ctx.font = 'bold 14px monospace';
+    ctx.fillStyle = COL.darkGreen;
+    ctx.fillText(remoteHighScore || highScore, col1CX, bastY + 18);
+    ctx.fillStyle = '#888';
+    ctx.fillText(localHighScore, col2CX, bastY + 18);
   }
+  ctx.textAlign = 'center';
 
   // Bottom divider — gap below "Bäst"
   ctx.strokeStyle = '#ddd';
@@ -1468,6 +1542,8 @@ function resetGame() {
   combo = 0;
   maxCombo = 0;
   newRecord = false;
+  newGlobalRecord = false;
+  newPersonalRecord = false;
   prevHighScore = 0;
   floorItems = [];
   particles = [];
@@ -1633,11 +1709,28 @@ function updateGame(dt) {
         // Game over
         stopMusic();
         sfxGameOver();
-        if (score > highScore) {
-          prevHighScore = highScore;
-          highScore = score;
+        newGlobalRecord = false;
+        newPersonalRecord = false;
+        const globalBest = remoteHighScore > 0 ? remoteHighScore : localHighScore;
+        if (score > globalBest) {
+          // Beat the global record (or local-only best when no remote)
+          prevHighScore = globalBest;
+          prevLocalHighScore = localHighScore;
+          newGlobalRecord = true;
           newRecord = true;
+          highScore = score;
+          remoteHighScore = remoteHighScore > 0 ? score : 0; // keep remote in sync
           saveHighScore();
+          localHighScore = score;
+        } else if (score > localHighScore) {
+          // Beat personal best but not global
+          prevLocalHighScore = localHighScore;
+          newPersonalRecord = true;
+          newRecord = false;
+          localHighScore = score;
+          try { localStorage.setItem('gtn_highscore', localHighScore); } catch(e) {}
+        } else {
+          newRecord = false;
         }
         state = STATE.GAME_OVER;
         return;
