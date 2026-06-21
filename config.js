@@ -93,10 +93,24 @@ const CONFIG = {
 
     // Pop-up messages during gameplay
     popupFirstMiss:    'Hallå, plocka upp det!',
-    popupCombo5:       'Du är bra på att städa!',
     popupIronStun:     'Akta strykjärnet!',
     popupWeddingDress: 'Du räddade brudklänningen!',
     popupHighMess:     'Det börjar bli stökigt...',
-    popupCombo10:      'Du är en tvättmaskin!',
+
+    // Combo pop-ups — one is picked at random each time.
+    // Add or remove phrases freely; use {player1}/{player2} if you like.
+    popupCombo5Pool: [
+      'Bra städat!',
+      'Snyggt jobbat, {player2}!',
+      'Fem i rad! 🎯',
+      'Imponerande reflexer!',
+    ],
+    popupCombo10Pool: [
+      'Du är en tvättmaskin!',
+      'COMBO x10! Fantastiskt!',
+      '{player2} fångar allt!',
+      'Tio i rad - sjukt!',
+      'Tvättstjärna av rang!',
+    ],
   },
 };
